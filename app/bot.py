@@ -12,7 +12,15 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.catalog_data import PRODUCT_TYPE_HINTS
@@ -30,6 +38,8 @@ from app.db import (
     list_subcategories,
     mark_order_paid,
     pop_payloads,
+    replace_product_payloads,
+    update_product_content,
 )
 
 router = Router()
@@ -65,11 +75,11 @@ def main_kb() -> InlineKeyboardMarkup:
     help_link = normalize_tg_link(settings.help_link, "https://t.me/Dolzu")
     rules_link = normalize_tg_link(settings.rules_link, "https://telegra.ph/Pravila-magazina-05-28")
     kb = InlineKeyboardBuilder()
-    kb.button(text="🛒 Товары и услуги", callback_data="menu:catalog")
-    kb.button(text="👛 Баланс", callback_data="menu:balance")
-    kb.button(text="💰 Опт", url=wholesale_link)
-    kb.button(text="⏺️ Помощь", url=help_link)
-    kb.button(text="⚠️ Правила", url=rules_link)
+    kb.button(text="🛍️ Товары и услуги", callback_data="menu:catalog")
+    kb.button(text="💳 Баланс", callback_data="menu:balance")
+    kb.button(text="💎 Опт", url=wholesale_link)
+    kb.button(text="🛟 Помощь", url=help_link)
+    kb.button(text="📜 Правила", url=rules_link)
     kb.adjust(1, 1, 2, 1)
     return kb.as_markup()
 
@@ -129,14 +139,69 @@ def fmt_money(v: float) -> str:
     return s.replace(".", ",")
 
 
+async def send_paid_notify_to_admin(order_code: str) -> None:
+    if not settings.notify_bot_token or settings.notify_chat_id is None:
+        return
+
+    order = get_order(order_code)
+    if not order:
+        return
+    product = get_product(int(order["product_id"]))
+    title = product["title"] if product else "Товар не найден"
+    text = (
+        "💸 Новая оплата\n"
+        f"Заказ: {order['order_code']}\n"
+        f"Пользователь: {order['tg_user_id']}\n"
+        f"Товар: {title}\n"
+        f"Кол-во: {order['qty']} шт.\n"
+        f"Сумма: {fmt_money(order['total_usd'])}$ ({fmt_money(order['total_rub'])}₽)\n"
+        f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    )
+
+    try:
+        notify_bot = Bot(
+            token=settings.notify_bot_token,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
+        await notify_bot.send_message(settings.notify_chat_id, text)
+        await notify_bot.session.close()
+    except Exception:
+        return
+
+
+async def setup_bot_commands(bot: Bot) -> None:
+    await bot.set_my_commands(
+        commands=[BotCommand(command="start", description="Запустить бота")],
+        scope=BotCommandScopeAllPrivateChats(),
+    )
+
+    admin_commands = [
+        BotCommand(command="admin", description="Панель админа"),
+        BotCommand(command="additem", description="Добавить товар"),
+        BotCommand(command="addpayload", description="Добавить 1 выдачу"),
+        BotCommand(command="setpayloads", description="Заменить всю выдачу"),
+        BotCommand(command="setname", description="Изменить название"),
+        BotCommand(command="setdesc", description="Изменить описание"),
+        BotCommand(command="setdelivery", description="Текст после оплаты"),
+        BotCommand(command="setstock", description="Изменить остаток"),
+        BotCommand(command="order", description="Проверить заказ"),
+        BotCommand(command="broadcast", description="Сделать рассылку"),
+    ]
+    for admin_id in settings.admin_ids:
+        await bot.set_my_commands(
+            commands=admin_commands,
+            scope=BotCommandScopeChat(chat_id=admin_id),
+        )
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     text = (
-        "👋 Приветствую в Accel Shop!\n"
-        "Это Цифровой интернет-магазин для покупки подписок на нейросети и другие популярные сервисы.\n"
-        "Тут аккаунты, подписки, сертификаты и многое другое!\n"
-        "Нажмите кнопку ниже чтобы взаимодействовать с ботом.\n"
+        "✨ Добро пожаловать в Accel Shop!\n"
+        "🏆 Премиум-магазин подписок на нейросети и популярные сервисы.\n"
+        "🧩 Здесь аккаунты, подписки, сертификаты и многое другое.\n"
+        "👇 Нажмите кнопку ниже, чтобы начать работу с ботом.\n"
         f"{now}"
     )
     await message.answer(text, reply_markup=main_kb())
@@ -144,14 +209,14 @@ async def cmd_start(message: Message) -> None:
 
 @router.callback_query(F.data == "go:main")
 async def cb_main(callback: CallbackQuery) -> None:
-    await callback.message.edit_text("Главное меню:", reply_markup=main_kb())
+    await callback.message.edit_text("🏠 Главное меню:", reply_markup=main_kb())
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:catalog")
 async def cb_catalog(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
-        "🛒 Товары и услуги\nВыберите раздел:",
+        "🛍️ Товары и услуги\nВыберите раздел:",
         reply_markup=categories_kb(),
     )
     await callback.answer()
@@ -159,15 +224,15 @@ async def cb_catalog(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "go:cats")
 async def cb_go_cats(callback: CallbackQuery) -> None:
-    await callback.message.edit_text("Выберите раздел:", reply_markup=categories_kb())
+    await callback.message.edit_text("📂 Выберите раздел:", reply_markup=categories_kb())
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:balance")
 async def cb_balance(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
-        "👛 Баланс пока в разработке.\n"
-        "Сейчас можно оплачивать каждый заказ отдельно через CryptoBot/Bybit.",
+        "💳 Баланс пока в разработке.\n"
+        "Сейчас можно оплачивать каждый заказ отдельно через CryptoBot / Bybit.",
         reply_markup=main_kb(),
     )
     await callback.answer()
@@ -177,7 +242,7 @@ async def cb_balance(callback: CallbackQuery) -> None:
 async def cb_category(callback: CallbackQuery) -> None:
     category_id = int(callback.data.split(":")[1])
     await callback.message.edit_text(
-        "Выберите сервис:",
+        "🧠 Выберите сервис:",
         reply_markup=subcategories_kb(category_id),
     )
     await callback.answer()
@@ -187,7 +252,7 @@ async def cb_category(callback: CallbackQuery) -> None:
 async def cb_subcategory(callback: CallbackQuery) -> None:
     sub_id = int(callback.data.split(":")[1])
     await callback.message.edit_text(
-        "Доступные товары:",
+        "🧾 Доступные товары:",
         reply_markup=products_kb(sub_id),
     )
     await callback.answer()
@@ -203,7 +268,6 @@ async def cb_product(callback: CallbackQuery) -> None:
 
     ptype = (product["product_type"] or "").strip()
     hint = PRODUCT_TYPE_HINTS.get(ptype, "Описание типа уточняйте у администратора.")
-    max_qty = min(max(product["stock"], 1), 12)
     status = "В наличии" if product["stock"] > 0 else "Нет в наличии"
     text = (
         f"📦 {product['title']}\n"
@@ -211,9 +275,23 @@ async def cb_product(callback: CallbackQuery) -> None:
         f"📦 Остаток: {product['stock']} шт.\n"
         f"🧩 Тип: {ptype or 'Не указан'}\n"
         f"ℹ️ {hint}\n"
-        f"Статус: {status}\n\n"
+        f"📌 Статус: {status}\n\n"
         f"{ADMIN_FOOTER}"
     )
+
+    description = (product["description"] or "").strip()
+    if description:
+        text = (
+            f"📦 {product['title']}\n"
+            f"📝 Описание: {description}\n"
+            f"💰 Цена: ${fmt_money(product['price_usd'])}\n"
+            f"📦 Остаток: {product['stock']} шт.\n"
+            f"🧩 Тип: {ptype or 'Не указан'}\n"
+            f"ℹ️ {hint}\n"
+            f"📌 Статус: {status}\n\n"
+            f"{ADMIN_FOOTER}"
+        )
+
     kb = InlineKeyboardBuilder()
     if product["stock"] > 0:
         kb.button(text="🛍 Купить", callback_data=f"buy:{product_id}")
@@ -233,7 +311,7 @@ async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(BuyFlow.choose_qty)
     await state.update_data(product_id=product_id)
     await callback.message.edit_text(
-        f"Выберите количество (1-{min(product['stock'], 12)}):",
+        f"🔢 Выберите количество (1-{min(product['stock'], 12)}):",
         reply_markup=qty_kb(product_id, min(product["stock"], 12)),
     )
     await callback.answer()
@@ -272,7 +350,7 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext) -> None:
     )
 
     text = (
-        "Выберите способ оплаты:\n\n"
+        "💸 Выберите способ оплаты:\n\n"
         f"📃 Товар: {product['title']}\n"
         f"💰 Цена: {fmt_money(price)} $\n"
         f"📦 Кол-во: {qty} шт.\n"
@@ -349,18 +427,22 @@ async def cb_paid(callback: CallbackQuery) -> None:
     if not order:
         await callback.answer("Заказ не найден", show_alert=True)
         return
+    await send_paid_notify_to_admin(order_code)
     payloads = pop_payloads(int(order["product_id"]), int(order["qty"]))
+    product = get_product(int(order["product_id"]))
+    delivery_text = (product["delivery_text"] or "").strip() if product else ""
+
     if not payloads:
-        await callback.message.edit_text(
-            "Платеж отмечен как полученный.\n"
-            "Товар закончился, администратор скоро свяжется с вами.\n"
-            f"{ADMIN_FOOTER}"
-        )
+        text = "Платеж отмечен как полученный.\nТовар закончился, администратор скоро свяжется с вами."
+        if delivery_text:
+            text = f"{text}\n\n📨 Информация по выдаче:\n{delivery_text}"
+        await callback.message.edit_text(f"{text}\n\n{ADMIN_FOOTER}")
     else:
         data = "\n\n".join(f"{idx + 1}) {v}" for idx, v in enumerate(payloads))
+        extra = f"\n\n📨 Информация по выдаче:\n{delivery_text}" if delivery_text else ""
         await callback.message.edit_text(
             "✅ Оплата подтверждена!\nВаш товар:\n\n"
-            f"{data}\n\n{ADMIN_FOOTER}"
+            f"{data}{extra}\n\n{ADMIN_FOOTER}"
         )
     await callback.answer("Спасибо за оплату!")
 
@@ -373,6 +455,10 @@ async def cmd_admin(message: Message) -> None:
         "Админ-команды:\n"
         "/additem - добавить новый товар\n"
         "/addpayload <product_id> | <данные> - добавить 1 товарную единицу\n"
+        "/setpayloads <product_id> | строка1 ; строка2 - заменить всю выдачу\n"
+        "/setname <product_id> | новое название - поменять название\n"
+        "/setdesc <product_id> | новое описание - поменять описание\n"
+        "/setdelivery <product_id> | текст - сообщение после оплаты\n"
         "/setstock <product_id> <qty> - установить остаток\n"
         "/broadcast - рассылка по покупателям\n"
         "/order <код> - проверить заказ"
@@ -397,7 +483,7 @@ async def cmd_additem(message: Message, state: FSMContext) -> None:
 async def state_add_product(message: Message, state: FSMContext) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
-    parts = [x.strip() for x in message.text.split("|")]
+    parts = [x.strip() for x in (message.text or "").split("|")]
     if len(parts) != 6:
         await message.answer("Неверный формат.")
         return
@@ -453,10 +539,85 @@ async def cmd_setstock(message: Message) -> None:
         return
     current = int(product["stock"])
     delta = qty - current
-    from app.db import adjust_stock  # local import for minimal public surface
+    from app.db import adjust_stock
 
     ok = adjust_stock(pid, delta)
     await message.answer("✅ Остаток обновлен" if ok else "❌ Ошибка обновления")
+
+
+@router.message(Command("setname"))
+async def cmd_setname(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setname", "", 1).strip()
+    if "|" not in rest:
+        await message.answer("Формат: /setname <product_id> | <новое название>")
+        return
+    pid_s, title = [x.strip() for x in rest.split("|", 1)]
+    try:
+        pid = int(pid_s)
+    except ValueError:
+        await message.answer("product_id должен быть числом")
+        return
+    ok = update_product_content(pid, title=title)
+    await message.answer("✅ Название обновлено" if ok else "❌ Товар не найден")
+
+
+@router.message(Command("setdesc"))
+async def cmd_setdesc(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setdesc", "", 1).strip()
+    if "|" not in rest:
+        await message.answer("Формат: /setdesc <product_id> | <новое описание>")
+        return
+    pid_s, description = [x.strip() for x in rest.split("|", 1)]
+    try:
+        pid = int(pid_s)
+    except ValueError:
+        await message.answer("product_id должен быть числом")
+        return
+    ok = update_product_content(pid, description=description)
+    await message.answer("✅ Описание обновлено" if ok else "❌ Товар не найден")
+
+
+@router.message(Command("setdelivery"))
+async def cmd_setdelivery(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setdelivery", "", 1).strip()
+    if "|" not in rest:
+        await message.answer("Формат: /setdelivery <product_id> | <текст после оплаты>")
+        return
+    pid_s, delivery_text = [x.strip() for x in rest.split("|", 1)]
+    try:
+        pid = int(pid_s)
+    except ValueError:
+        await message.answer("product_id должен быть числом")
+        return
+    ok = update_product_content(pid, delivery_text=delivery_text)
+    await message.answer("✅ Текст выдачи обновлен" if ok else "❌ Товар не найден")
+
+
+@router.message(Command("setpayloads"))
+async def cmd_setpayloads(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setpayloads", "", 1).strip()
+    if "|" not in rest:
+        await message.answer("Формат: /setpayloads <product_id> | строка1 ; строка2 ; строка3")
+        return
+    pid_s, payloads_blob = [x.strip() for x in rest.split("|", 1)]
+    try:
+        pid = int(pid_s)
+    except ValueError:
+        await message.answer("product_id должен быть числом")
+        return
+    payloads = [item.strip() for item in payloads_blob.split(";") if item.strip()]
+    ok = replace_product_payloads(pid, payloads)
+    await message.answer(
+        f"✅ Выдача заменена. Записей: {len(payloads)}" if ok else "❌ Товар не найден"
+    )
 
 
 @router.message(Command("order"))
@@ -510,8 +671,8 @@ async def run_bot() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    # Railway + polling: if webhook was set earlier in BotFather, polling will not receive updates.
     await bot.delete_webhook(drop_pending_updates=True)
+    await setup_bot_commands(bot)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     await dp.start_polling(bot)
@@ -520,4 +681,3 @@ async def run_bot() -> None:
 if __name__ == "__main__":
     init_db()
     asyncio.run(run_bot())
-
