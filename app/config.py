@@ -17,6 +17,8 @@ class Settings:
     bybit_uid: str
     rub_per_usd: float
     cryptobot_invoice_add_percent: int
+    notify_bot_token: str
+    notify_chat_id: int | None
 
 
 def _parse_admin_ids(raw: str) -> set[int]:
@@ -35,6 +37,9 @@ def load_settings() -> Settings:
     if not token:
         raise RuntimeError("BOT_TOKEN is required in .env file")
 
+    notify_chat_raw = os.getenv("NOTIFY_CHAT_ID", "").strip()
+    notify_chat_id = int(notify_chat_raw) if notify_chat_raw else None
+
     return Settings(
         bot_token=token,
         admin_ids=_parse_admin_ids(os.getenv("ADMIN_IDS", "")),
@@ -45,4 +50,6 @@ def load_settings() -> Settings:
         bybit_uid=os.getenv("BYBIT_UID", "565720761").strip(),
         rub_per_usd=float(os.getenv("RUB_PER_USD", "70.9")),
         cryptobot_invoice_add_percent=int(os.getenv("CRYPTOBOT_INVOICE_ADD_PERCENT", "3")),
+        notify_bot_token=os.getenv("NOTIFY_BOT_TOKEN", "").strip(),
+        notify_chat_id=notify_chat_id,
     )
