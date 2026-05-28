@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import asyncio
 import time
 from datetime import datetime
 from random import randint
+
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -10,8 +12,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
 from app.db import (
@@ -28,23 +31,49 @@ from app.db import (
     mark_order_paid,
     pop_payloads,
 )
+
 router = Router()
 ADMIN_FOOTER = "— 💎 Админ/Связь/Опт - @Dolzu"
 settings = load_settings()
+
+
 class BuyFlow(StatesGroup):
     choose_qty = State()
+
+
 class AdminFlow(StatesGroup):
+    add_payload_wait = State()
     add_product_wait = State()
     broadcast_wait = State()
+
+
+def normalize_tg_link(value: str, fallback: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return fallback
+    if raw.startswith("@"):
+        return f"https://t.me/{raw[1:]}"
+    if raw.startswith("t.me/"):
+        return f"https://{raw}"
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    return fallback
+
+
 def main_kb() -> InlineKeyboardMarkup:
+    wholesale_link = normalize_tg_link(settings.wholesale_link, "https://t.me/Dolzu")
+    help_link = normalize_tg_link(settings.help_link, "https://t.me/Dolzu")
+    rules_link = normalize_tg_link(settings.rules_link, "https://telegra.ph/Pravila-magazina-05-28")
     kb = InlineKeyboardBuilder()
     kb.button(text="🛒 Товары и услуги", callback_data="menu:catalog")
     kb.button(text="👛 Баланс", callback_data="menu:balance")
-    kb.button(text="💰 Опт", url=settings.wholesale_link)
-    kb.button(text="⏺️ Помощь", url=settings.help_link)
-    kb.button(text="⚠️ Правила", url=settings.rules_link)
+    kb.button(text="💰 Опт", url=wholesale_link)
+    kb.button(text="⏺️ Помощь", url=help_link)
+    kb.button(text="⚠️ Правила", url=rules_link)
     kb.adjust(1, 1, 2, 1)
     return kb.as_markup()
+
+
 def categories_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for c in list_categories():
@@ -52,6 +81,8 @@ def categories_kb() -> InlineKeyboardMarkup:
     kb.button(text="◀️ Назад", callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
+
+
 def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for s in list_subcategories(category_id):
@@ -59,6 +90,8 @@ def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
     kb.button(text="◀️ Назад", callback_data="menu:catalog")
     kb.adjust(1)
     return kb.as_markup()
+
+
 def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for p in list_products(subcategory_id):
@@ -70,6 +103,8 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
     kb.button(text="◀️ Назад", callback_data="go:cats")
     kb.adjust(1)
     return kb.as_markup()
+
+
 def qty_kb(product_id: int, max_qty: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for qty in range(1, max_qty + 1):
@@ -77,6 +112,8 @@ def qty_kb(product_id: int, max_qty: int) -> InlineKeyboardMarkup:
     kb.button(text="◀️ Назад", callback_data=f"prod:{product_id}")
     kb.adjust(4)
     return kb.as_markup()
+
+
 def pay_kb(order_code: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="CryptoBot USDT", callback_data=f"pay:crypto_usdt:{order_code}")
@@ -84,10 +121,14 @@ def pay_kb(order_code: str) -> InlineKeyboardMarkup:
     kb.button(text="Bybit", callback_data=f"pay:bybit:{order_code}")
     kb.adjust(1)
     return kb.as_markup()
+
+
 def fmt_money(v: float) -> str:
     s = f"{v:.2f}"
     s = s.rstrip("0").rstrip(".")
     return s.replace(".", ",")
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -99,10 +140,14 @@ async def cmd_start(message: Message) -> None:
         f"{now}"
     )
     await message.answer(text, reply_markup=main_kb())
+
+
 @router.callback_query(F.data == "go:main")
 async def cb_main(callback: CallbackQuery) -> None:
     await callback.message.edit_text("Главное меню:", reply_markup=main_kb())
     await callback.answer()
+
+
 @router.callback_query(F.data == "menu:catalog")
 async def cb_catalog(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
@@ -110,10 +155,14 @@ async def cb_catalog(callback: CallbackQuery) -> None:
         reply_markup=categories_kb(),
     )
     await callback.answer()
+
+
 @router.callback_query(F.data == "go:cats")
 async def cb_go_cats(callback: CallbackQuery) -> None:
     await callback.message.edit_text("Выберите раздел:", reply_markup=categories_kb())
     await callback.answer()
+
+
 @router.callback_query(F.data == "menu:balance")
 async def cb_balance(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
@@ -122,6 +171,8 @@ async def cb_balance(callback: CallbackQuery) -> None:
         reply_markup=main_kb(),
     )
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("cat:"))
 async def cb_category(callback: CallbackQuery) -> None:
     category_id = int(callback.data.split(":")[1])
@@ -130,6 +181,8 @@ async def cb_category(callback: CallbackQuery) -> None:
         reply_markup=subcategories_kb(category_id),
     )
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("sub:"))
 async def cb_subcategory(callback: CallbackQuery) -> None:
     sub_id = int(callback.data.split(":")[1])
@@ -138,6 +191,8 @@ async def cb_subcategory(callback: CallbackQuery) -> None:
         reply_markup=products_kb(sub_id),
     )
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("prod:"))
 async def cb_product(callback: CallbackQuery) -> None:
     product_id = int(callback.data.split(":")[1])
@@ -145,8 +200,10 @@ async def cb_product(callback: CallbackQuery) -> None:
     if not product:
         await callback.answer("Товар не найден", show_alert=True)
         return
+
     ptype = (product["product_type"] or "").strip()
     hint = PRODUCT_TYPE_HINTS.get(ptype, "Описание типа уточняйте у администратора.")
+    max_qty = min(max(product["stock"], 1), 12)
     status = "В наличии" if product["stock"] > 0 else "Нет в наличии"
     text = (
         f"📦 {product['title']}\n"
@@ -164,6 +221,8 @@ async def cb_product(callback: CallbackQuery) -> None:
     kb.adjust(1)
     await callback.message.edit_text(text, reply_markup=kb.as_markup())
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
     product_id = int(callback.data.split(":")[1])
@@ -178,8 +237,10 @@ async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
         reply_markup=qty_kb(product_id, min(product["stock"], 12)),
     )
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("qty:"))
-async def cb_qty(callback: CallbackQuery) -> None:
+async def cb_qty(callback: CallbackQuery, state: FSMContext) -> None:
     _, product_id_s, qty_s = callback.data.split(":")
     product_id = int(product_id_s)
     qty = int(qty_s)
@@ -190,6 +251,7 @@ async def cb_qty(callback: CallbackQuery) -> None:
     if qty > product["stock"]:
         await callback.answer("Недостаточно товара", show_alert=True)
         return
+
     price = float(product["price_usd"])
     total_usd = qty * price
     total_rub = total_usd * settings.rub_per_usd
@@ -208,6 +270,7 @@ async def cb_qty(callback: CallbackQuery) -> None:
         payment_deadline_ts=deadline,
         created_ts=now_ts,
     )
+
     text = (
         "Выберите способ оплаты:\n\n"
         f"📃 Товар: {product['title']}\n"
@@ -219,6 +282,8 @@ async def cb_qty(callback: CallbackQuery) -> None:
     )
     await callback.message.edit_text(text, reply_markup=pay_kb(order_code))
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("pay:"))
 async def cb_pay(callback: CallbackQuery) -> None:
     _, method, order_code = callback.data.split(":")
@@ -230,6 +295,7 @@ async def cb_pay(callback: CallbackQuery) -> None:
     if not product:
         await callback.answer("Товар не найден", show_alert=True)
         return
+
     deadline_dt = datetime.fromtimestamp(order["payment_deadline_ts"]).strftime("%H:%M")
     if method in {"crypto_usdt", "crypto_ton"}:
         plus = settings.cryptobot_invoice_add_percent
@@ -269,10 +335,13 @@ async def cb_pay(callback: CallbackQuery) -> None:
             f"🕜 Необходимо оплатить до {deadline_dt}\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖"
         )
+
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Я оплатил", callback_data=f"paid:{order_code}")
     await callback.message.edit_text(text, reply_markup=kb.as_markup())
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("paid:"))
 async def cb_paid(callback: CallbackQuery) -> None:
     order_code = callback.data.split(":")[1]
@@ -294,6 +363,8 @@ async def cb_paid(callback: CallbackQuery) -> None:
             f"{data}\n\n{ADMIN_FOOTER}"
         )
     await callback.answer("Спасибо за оплату!")
+
+
 @router.message(Command("admin"))
 async def cmd_admin(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
@@ -307,6 +378,8 @@ async def cmd_admin(message: Message) -> None:
         "/order <код> - проверить заказ"
     )
     await message.answer(text)
+
+
 @router.message(Command("additem"))
 async def cmd_additem(message: Message, state: FSMContext) -> None:
     if message.from_user.id not in settings.admin_ids:
@@ -318,11 +391,13 @@ async def cmd_additem(message: Message, state: FSMContext) -> None:
         "Пример:\n"
         "Другие сервисы | Telegram Premium | Telegram Premium 3m | 7.5 | ACC | 5"
     )
+
+
 @router.message(AdminFlow.add_product_wait)
 async def state_add_product(message: Message, state: FSMContext) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
-    parts = [x.strip() for x in (message.text or "").split("|")]
+    parts = [x.strip() for x in message.text.split("|")]
     if len(parts) != 6:
         await message.answer("Неверный формат.")
         return
@@ -336,6 +411,8 @@ async def state_add_product(message: Message, state: FSMContext) -> None:
     product_id = add_custom_product(category, subcategory, title, price, ptype, stock)
     await state.clear()
     await message.answer(f"✅ Товар добавлен. product_id={product_id}")
+
+
 @router.message(Command("addpayload"))
 async def cmd_addpayload(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
@@ -354,6 +431,8 @@ async def cmd_addpayload(message: Message) -> None:
         return
     ok = add_product_payload(pid, payload)
     await message.answer("✅ Добавлено" if ok else "❌ Товар не найден")
+
+
 @router.message(Command("setstock"))
 async def cmd_setstock(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
@@ -374,9 +453,12 @@ async def cmd_setstock(message: Message) -> None:
         return
     current = int(product["stock"])
     delta = qty - current
-    from app.db import adjust_stock
+    from app.db import adjust_stock  # local import for minimal public surface
+
     ok = adjust_stock(pid, delta)
     await message.answer("✅ Остаток обновлен" if ok else "❌ Ошибка обновления")
+
+
 @router.message(Command("order"))
 async def cmd_order(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
@@ -395,12 +477,16 @@ async def cmd_order(message: Message) -> None:
         f"Метод: {order['payment_method']}\n"
         f"Сумма: {fmt_money(order['total_usd'])}$ ({fmt_money(order['total_rub'])}₽)"
     )
+
+
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
     await state.set_state(AdminFlow.broadcast_wait)
     await message.answer("Отправьте текст рассылки одним сообщением.")
+
+
 @router.message(AdminFlow.broadcast_wait)
 async def state_broadcast(message: Message, state: FSMContext, bot: Bot) -> None:
     if message.from_user.id not in settings.admin_ids:
@@ -417,15 +503,21 @@ async def state_broadcast(message: Message, state: FSMContext, bot: Bot) -> None
         except Exception:
             continue
     await message.answer(f"Рассылка завершена. Доставлено: {ok_count}/{len(user_ids)}")
+
+
 async def run_bot() -> None:
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    # Railway + polling: if webhook was set earlier in BotFather, polling will not receive updates.
     await bot.delete_webhook(drop_pending_updates=True)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     await dp.start_polling(bot)
+
+
 if __name__ == "__main__":
     init_db()
     asyncio.run(run_bot())
+
