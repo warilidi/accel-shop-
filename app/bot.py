@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from random import randint
 
@@ -31,6 +32,7 @@ from app.db import (
     get_all_user_ids,
     get_order,
     get_product,
+    get_subcategory,
     init_db,
     list_categories,
     list_products,
@@ -38,12 +40,29 @@ from app.db import (
     mark_order_paid,
     pop_payloads,
     replace_product_payloads,
+    get_visual,
+    list_visuals,
+    set_visual,
     update_product_content,
 )
 
 router = Router()
 ADMIN_FOOTER = "— 💎 Админ/Связь/Опт - @Dolzu"
 settings = load_settings()
+
+VISUALS = {
+    "start": os.getenv("IMG_START", "").strip(),
+    "categories": os.getenv("IMG_CATEGORIES", "").strip(),
+    "chatgpt": os.getenv("IMG_CHATGPT", "").strip(),
+    "perplexity": os.getenv("IMG_PERPLEXITY", "").strip(),
+    "grok": os.getenv("IMG_GROK", "").strip(),
+    "gemini": os.getenv("IMG_GEMINI", "").strip(),
+    "cursor": os.getenv("IMG_CURSOR", "").strip(),
+    "claude": os.getenv("IMG_CLAUDE", "").strip(),
+    "windows": os.getenv("IMG_WINDOWS", "").strip(),
+    "capcut": os.getenv("IMG_CAPCUT", "").strip(),
+    "spotify": os.getenv("IMG_SPOTIFY", "").strip(),
+}
 
 
 class BuyFlow(StatesGroup):
@@ -54,6 +73,21 @@ class AdminFlow(StatesGroup):
     add_payload_wait = State()
     add_product_wait = State()
     broadcast_wait = State()
+
+
+VISUAL_KEYS = [
+    "start",
+    "categories",
+    "chatgpt",
+    "perplexity",
+    "grok",
+    "gemini",
+    "cursor",
+    "claude",
+    "windows",
+    "capcut",
+    "spotify",
+]
 
 
 def normalize_tg_link(value: str, fallback: str) -> str:
@@ -138,6 +172,42 @@ def fmt_money(v: float) -> str:
     return s.replace(".", ",")
 
 
+def get_service_visual(subcategory_name: str) -> str:
+    normalized = (subcategory_name or "").strip().lower()
+    mapping = {
+        "chatgpt": "chatgpt",
+        "perplexity": "perplexity",
+        "grok": "grok",
+        "gemini": "gemini",
+        "cursor": "cursor",
+        "claude": "claude",
+        "windows": "windows",
+        "capcut": "capcut",
+        "spotify": "spotify",
+    }
+    key = mapping.get(normalized, "")
+    return get_visual_value(key) if key else ""
+
+
+def get_visual_value(key: str) -> str:
+    db_value = get_visual(key)
+    if db_value:
+        return db_value
+    return VISUALS.get(key, "")
+
+
+async def send_message_with_optional_photo(
+    message: Message,
+    text: str,
+    reply_markup: InlineKeyboardMarkup,
+    photo: str,
+) -> None:
+    if photo:
+        await message.answer_photo(photo=photo, caption=text, reply_markup=reply_markup)
+    else:
+        await message.answer(text, reply_markup=reply_markup)
+
+
 async def send_paid_notify_to_admin(order_code: str) -> None:
     if not settings.notify_bot_token or settings.notify_chat_id is None:
         return
@@ -200,7 +270,12 @@ async def cmd_start(message: Message) -> None:
         "🧩 Здесь аккаунты, подписки, сертификаты и многое другое.\n"
         "👇 Нажмите кнопку ниже, чтобы начать работу с ботом."
     )
-    await message.answer(text, reply_markup=main_kb())
+    await send_message_with_optional_photo(
+        message=message,
+        text=text,
+        reply_markup=main_kb(),
+        photo=get_visual_value("start"),
+    )
 
 
 @router.callback_query(F.data == "go:main")
@@ -211,10 +286,12 @@ async def cb_main(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:catalog")
 async def cb_catalog(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        "🛍️ Товары и услуги\nВыберите раздел:",
-        reply_markup=categories_kb(),
-    )
+    text = "🛍️ Товары и услуги\nВыберите раздел:"
+    image = get_visual_value("categories")
+    if image:
+        await callback.message.answer_photo(photo=image, caption=text, reply_markup=categories_kb())
+    else:
+        await callback.message.edit_text(text, reply_markup=categories_kb())
     await callback.answer()
 
 
@@ -247,10 +324,14 @@ async def cb_category(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("sub:"))
 async def cb_subcategory(callback: CallbackQuery) -> None:
     sub_id = int(callback.data.split(":")[1])
-    await callback.message.edit_text(
-        "🧾 Доступные товары:",
-        reply_markup=products_kb(sub_id),
-    )
+    selected = get_subcategory(sub_id)
+    service_name = selected["name"] if selected else ""
+    service_image = get_service_visual(service_name)
+    text = f"🧾 Доступные товары: {service_name}" if service_name else "🧾 Доступные товары:"
+    if service_image:
+        await callback.message.answer_photo(photo=service_image, caption=text, reply_markup=products_kb(sub_id))
+    else:
+        await callback.message.edit_text(text, reply_markup=products_kb(sub_id))
     await callback.answer()
 
 
@@ -449,11 +530,45 @@ async def cmd_admin(message: Message) -> None:
         "/setname <product_id> | новое название - поменять название\n"
         "/setdesc <product_id> | новое описание - поменять описание\n"
         "/setdelivery <product_id> | текст - сообщение после оплаты\n"
+        "/setimage <key> <file_id|url> - назначить картинку\n"
+        "/images - список ключей и текущих картинок\n"
         "/setstock <product_id> <qty> - установить остаток\n"
         "/broadcast - рассылка по покупателям\n"
         "/order <код> - проверить заказ"
     )
     await message.answer(text)
+
+
+@router.message(Command("setimage"))
+async def cmd_setimage(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    parts = (message.text or "").split(maxsplit=2)
+    if len(parts) != 3:
+        await message.answer(
+            "Формат: /setimage <key> <file_id или https://...>\n"
+            f"Ключи: {', '.join(VISUAL_KEYS)}"
+        )
+        return
+    key = parts[1].strip().lower()
+    value = parts[2].strip()
+    if key not in VISUAL_KEYS:
+        await message.answer(f"Неизвестный ключ. Доступно: {', '.join(VISUAL_KEYS)}")
+        return
+    set_visual(key, value)
+    await message.answer(f"✅ Картинка для `{key}` обновлена.")
+
+
+@router.message(Command("images"))
+async def cmd_images(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rows = {r["key"]: r["value"] for r in list_visuals()}
+    lines = []
+    for key in VISUAL_KEYS:
+        current = rows.get(key) or VISUALS.get(key, "")
+        lines.append(f"{key}: {'✅ задано' if current else '❌ пусто'}")
+    await message.answer("Картинки:\n" + "\n".join(lines))
 
 
 @router.message(Command("additem"))
