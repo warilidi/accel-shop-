@@ -44,10 +44,12 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             subcategory_id INTEGER NOT NULL,
             title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
             product_type TEXT NOT NULL DEFAULT '',
             price_usd REAL NOT NULL,
             stock INTEGER NOT NULL DEFAULT 0,
             payloads_json TEXT NOT NULL DEFAULT '[]',
+            delivery_text TEXT NOT NULL DEFAULT '',
             image_url TEXT NOT NULL DEFAULT '',
             is_active INTEGER NOT NULL DEFAULT 1,
             FOREIGN KEY(subcategory_id) REFERENCES subcategories(id)
@@ -74,6 +76,17 @@ def init_db() -> None:
         )
         """
     )
+
+    # Lightweight migration for existing databases.
+    try:
+        cur.execute("ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("ALTER TABLE products ADD COLUMN delivery_text TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
 
     cur.execute("SELECT COUNT(*) as c FROM categories")
@@ -128,7 +141,7 @@ def list_products(subcategory_id: int) -> list[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute(
             """
-            SELECT id, title, product_type, price_usd, stock, image_url
+            SELECT id, title, description, product_type, price_usd, stock, delivery_text, image_url
             FROM products
             WHERE subcategory_id = ? AND is_active = 1
             ORDER BY id
@@ -141,7 +154,8 @@ def get_product(product_id: int) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute(
             """
-            SELECT p.id, p.subcategory_id, p.title, p.product_type, p.price_usd, p.stock, p.payloads_json, p.image_url,
+            SELECT p.id, p.subcategory_id, p.title, p.description, p.product_type, p.price_usd, p.stock,
+                   p.payloads_json, p.delivery_text, p.image_url,
                    s.name as subcategory_name, c.name as category_name
             FROM products p
             JOIN subcategories s ON s.id = p.subcategory_id
@@ -177,6 +191,51 @@ def add_product_payload(product_id: int, payload_text: str) -> bool:
             "UPDATE products SET payloads_json = ?, stock = stock + 1 WHERE id = ?",
             (json.dumps(payloads, ensure_ascii=False), product_id),
         )
+        conn.commit()
+        return True
+
+
+def replace_product_payloads(product_id: int, payloads: list[str]) -> bool:
+    cleaned = [item.strip() for item in payloads if item.strip()]
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute(
+            "UPDATE products SET payloads_json = ?, stock = ? WHERE id = ?",
+            (json.dumps(cleaned, ensure_ascii=False), len(cleaned), product_id),
+        )
+        conn.commit()
+        return True
+
+
+def update_product_content(
+    product_id: int,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    delivery_text: str | None = None,
+) -> bool:
+    fields: list[str] = []
+    values: list[Any] = []
+    if title is not None:
+        fields.append("title = ?")
+        values.append(title.strip())
+    if description is not None:
+        fields.append("description = ?")
+        values.append(description.strip())
+    if delivery_text is not None:
+        fields.append("delivery_text = ?")
+        values.append(delivery_text.strip())
+    if not fields:
+        return False
+    values.append(product_id)
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute(f"UPDATE products SET {', '.join(fields)} WHERE id = ?", values)
         conn.commit()
         return True
 
