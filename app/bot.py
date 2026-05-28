@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
 from random import randint
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -154,8 +153,7 @@ async def send_paid_notify_to_admin(order_code: str) -> None:
         f"Пользователь: {order['tg_user_id']}\n"
         f"Товар: {title}\n"
         f"Кол-во: {order['qty']} шт.\n"
-        f"Сумма: {fmt_money(order['total_usd'])}$ ({fmt_money(order['total_rub'])}₽)\n"
-        f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        f"Сумма: {fmt_money(order['total_usd'])}$ ({fmt_money(order['total_rub'])}₽)"
     )
 
     try:
@@ -196,13 +194,11 @@ async def setup_bot_commands(bot: Bot) -> None:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
     text = (
         "✨ Добро пожаловать в Accel Shop!\n"
         "🏆 Премиум-магазин подписок на нейросети и популярные сервисы.\n"
         "🧩 Здесь аккаунты, подписки, сертификаты и многое другое.\n"
-        "👇 Нажмите кнопку ниже, чтобы начать работу с ботом.\n"
-        f"{now}"
+        "👇 Нажмите кнопку ниже, чтобы начать работу с ботом."
     )
     await message.answer(text, reply_markup=main_kb())
 
@@ -355,7 +351,6 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext) -> None:
         f"💰 Цена: {fmt_money(price)} $\n"
         f"📦 Кол-во: {qty} шт.\n"
         f"💡 Заказ: {order_code}\n"
-        f"🕐 Время заказа: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
         f"🕐 Итоговая сумма: {fmt_money(total_rub)} ₽"
     )
     await callback.message.edit_text(text, reply_markup=pay_kb(order_code))
@@ -374,7 +369,6 @@ async def cb_pay(callback: CallbackQuery) -> None:
         await callback.answer("Товар не найден", show_alert=True)
         return
 
-    deadline_dt = datetime.fromtimestamp(order["payment_deadline_ts"]).strftime("%H:%M")
     if method in {"crypto_usdt", "crypto_ton"}:
         plus = settings.cryptobot_invoice_add_percent
         total_rub = float(order["total_rub"]) * (1 + plus / 100)
@@ -387,14 +381,12 @@ async def cb_pay(callback: CallbackQuery) -> None:
             f"💰 Цена: {fmt_money(order['price_usd'])} $\n"
             f"📦 Кол-во: {order['qty']} шт.\n"
             f"💡 Заказ: {order['order_code']}\n"
-            f"🕐 Время заказа: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
             f"🕐 Итоговая сумма: {fmt_money(total_rub)} ₽\n"
             f"💲 Способ оплаты: {payment_name}\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖\n"
             f"Для оплаты перейдите по ссылке:\n{pay_link}\n"
             f"(+%{plus})\n"
             "⏰ Время на оплату: 15 минут\n"
-            f"🕜 Необходимо оплатить до {deadline_dt}\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖"
         )
     else:
@@ -404,13 +396,11 @@ async def cb_pay(callback: CallbackQuery) -> None:
             f"💰 Цена: {fmt_money(order['price_usd'])} $\n"
             f"📦 Кол-во: {order['qty']} шт.\n"
             f"💡 Заказ: {order['order_code']}\n"
-            f"🕐 Время заказа: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
             f"🕐 Итоговая сумма: {fmt_money(order['total_rub'])} ₽\n"
             "💲 Способ оплаты: Bybit\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖\n"
             f"Для оплаты пришлите деньги на Bybit UID {settings.bybit_uid}!\n\n"
             "⏰ Время на оплату: 15 минут\n"
-            f"🕜 Необходимо оплатить до {deadline_dt}\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖"
         )
 
