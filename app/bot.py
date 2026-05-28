@@ -78,6 +78,7 @@ class AdminFlow(StatesGroup):
 VISUAL_KEYS = [
     "start",
     "categories",
+    "rules",
     "chatgpt",
     "perplexity",
     "grok",
@@ -106,14 +107,29 @@ def normalize_tg_link(value: str, fallback: str) -> str:
 def main_kb() -> InlineKeyboardMarkup:
     wholesale_link = normalize_tg_link(settings.wholesale_link, "https://t.me/Dolzu")
     help_link = normalize_tg_link(settings.help_link, "https://t.me/Dolzu")
-    rules_link = normalize_tg_link(settings.rules_link, "https://telegra.ph/Pravila-magazina-05-28")
     kb = InlineKeyboardBuilder()
     kb.button(text="🛍️ Товары и услуги", callback_data="menu:catalog")
     kb.button(text="💳 Баланс", callback_data="menu:balance")
     kb.button(text="💎 Опт", url=wholesale_link)
     kb.button(text="🛟 Помощь", url=help_link)
-    kb.button(text="📜 Правила", url=rules_link)
-    kb.adjust(1, 1, 2, 1)
+    kb.button(text="👤 Профиль", callback_data="menu:profile")
+    kb.button(text="📜 Правила", callback_data="menu:rules")
+    kb.adjust(1, 1, 2, 2)
+    return kb.as_markup()
+
+
+def rules_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="Пользовательское соглашение",
+        url="https://telegra.ph/POLZOVATELSKOE-SOGLASHENIE-01-07-19",
+    )
+    kb.button(
+        text="Политика конфиденциальности",
+        url="https://telegra.ph/Politika-konfidencialnosti-01-07-38",
+    )
+    kb.button(text="↩️ Назад ко всем категориям", callback_data="go:main")
+    kb.adjust(1)
     return kb.as_markup()
 
 
@@ -308,6 +324,55 @@ async def cb_balance(callback: CallbackQuery) -> None:
         "Сейчас можно оплачивать каждый заказ отдельно через CryptoBot / Bybit.",
         reply_markup=main_kb(),
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:rules")
+async def cb_rules(callback: CallbackQuery) -> None:
+    text = (
+        "📚 <b>Правила и соглашения</b>\n\n"
+        "Перед использованием бота, пожалуйста, ознакомьтесь с "
+        "пользовательским соглашением и политикой конфиденциальности."
+    )
+    photo = get_visual_value("rules")
+    if photo:
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=text,
+            reply_markup=rules_kb(),
+        )
+    else:
+        await callback.message.answer(text, reply_markup=rules_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:profile")
+async def cb_profile(callback: CallbackQuery) -> None:
+    from app.db import get_conn
+    user_id = callback.from_user.id
+    username = callback.from_user.username
+    full_name = callback.from_user.full_name or "—"
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt, SUM(total_usd) as total FROM orders WHERE tg_user_id = ? AND payment_status = 'paid'",
+            (user_id,),
+        ).fetchone()
+    orders_count = int(row["cnt"]) if row and row["cnt"] else 0
+    total_spent = float(row["total"]) if row and row["total"] else 0.0
+
+    username_str = f"@{username}" if username else "не указан"
+    text = (
+        "👤 <b>Ваш профиль</b>\n\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"👤 Имя: {full_name}\n"
+        f"📧 Username: {username_str}\n\n"
+        f"🛍️ Всего заказов: <b>{orders_count}</b>\n"
+        f"💰 Потрачено: <b>${fmt_money(total_spent)}</b>"
+    )
+    kb = InlineKeyboardBuilder()
+    kb.button(text="◀️ Назад", callback_data="go:main")
+    await callback.message.edit_text(text, reply_markup=kb.as_markup())
     await callback.answer()
 
 
