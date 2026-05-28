@@ -1,0 +1,303 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from app.catalog_data import DEFAULT_CATALOG
+
+DB_PATH = Path("shop.db")
+
+
+def get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS subcategories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            UNIQUE(category_id, name),
+            FOREIGN KEY(category_id) REFERENCES categories(id)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subcategory_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            product_type TEXT NOT NULL DEFAULT '',
+            price_usd REAL NOT NULL,
+            stock INTEGER NOT NULL DEFAULT 0,
+            payloads_json TEXT NOT NULL DEFAULT '[]',
+            image_url TEXT NOT NULL DEFAULT '',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(subcategory_id) REFERENCES subcategories(id)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_code TEXT NOT NULL UNIQUE,
+            tg_user_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            qty INTEGER NOT NULL,
+            price_usd REAL NOT NULL,
+            total_usd REAL NOT NULL,
+            total_rub REAL NOT NULL,
+            payment_method TEXT NOT NULL,
+            payment_status TEXT NOT NULL DEFAULT 'pending',
+            payment_deadline_ts INTEGER NOT NULL,
+            created_ts INTEGER NOT NULL,
+            payment_meta TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY(product_id) REFERENCES products(id)
+        )
+        """
+    )
+    conn.commit()
+
+    cur.execute("SELECT COUNT(*) as c FROM categories")
+    if cur.fetchone()["c"] == 0:
+        seed_catalog(conn, DEFAULT_CATALOG)
+
+    conn.close()
+
+
+def seed_catalog(conn: sqlite3.Connection, catalog: list[dict[str, Any]]) -> None:
+    cur = conn.cursor()
+    for category in catalog:
+        cur.execute("INSERT INTO categories(name) VALUES(?)", (category["name"],))
+        category_id = cur.lastrowid
+        for sub in category["items"]:
+            cur.execute(
+                "INSERT INTO subcategories(category_id, name) VALUES(?, ?)",
+                (category_id, sub["name"]),
+            )
+            sub_id = cur.lastrowid
+            for prod in sub["products"]:
+                cur.execute(
+                    """
+                    INSERT INTO products(subcategory_id, title, product_type, price_usd, stock)
+                    VALUES(?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sub_id,
+                        prod["title"],
+                        prod.get("product_type", ""),
+                        float(prod["price_usd"]),
+                        int(prod.get("stock", 0)),
+                    ),
+                )
+    conn.commit()
+
+
+def list_categories() -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute("SELECT id, name FROM categories ORDER BY id").fetchall()
+
+
+def list_subcategories(category_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id",
+            (category_id,),
+        ).fetchall()
+
+
+def list_products(subcategory_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT id, title, product_type, price_usd, stock, image_url
+            FROM products
+            WHERE subcategory_id = ? AND is_active = 1
+            ORDER BY id
+            """,
+            (subcategory_id,),
+        ).fetchall()
+
+
+def get_product(product_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT p.id, p.subcategory_id, p.title, p.product_type, p.price_usd, p.stock, p.payloads_json, p.image_url,
+                   s.name as subcategory_name, c.name as category_name
+            FROM products p
+            JOIN subcategories s ON s.id = p.subcategory_id
+            JOIN categories c ON c.id = s.category_id
+            WHERE p.id = ? AND p.is_active = 1
+            """,
+            (product_id,),
+        ).fetchone()
+
+
+def adjust_stock(product_id: int, delta: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT stock FROM products WHERE id = ?", (product_id,))
+        row = cur.fetchone()
+        if not row:
+            return False
+        new_stock = row["stock"] + delta
+        if new_stock < 0:
+            return False
+        conn.execute("UPDATE products SET stock = ? WHERE id = ?", (new_stock, product_id))
+        conn.commit()
+        return True
+
+
+def add_product_payload(product_id: int, payload_text: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT payloads_json FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            return False
+        payloads = json.loads(row["payloads_json"])
+        payloads.append(payload_text.strip())
+        conn.execute(
+            "UPDATE products SET payloads_json = ?, stock = stock + 1 WHERE id = ?",
+            (json.dumps(payloads, ensure_ascii=False), product_id),
+        )
+        conn.commit()
+        return True
+
+
+def pop_payloads(product_id: int, qty: int) -> list[str]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT payloads_json, stock FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+        if not row:
+            return []
+        payloads = json.loads(row["payloads_json"])
+        if len(payloads) < qty:
+            return []
+        issued = payloads[:qty]
+        left = payloads[qty:]
+        conn.execute(
+            "UPDATE products SET payloads_json = ?, stock = ? WHERE id = ?",
+            (json.dumps(left, ensure_ascii=False), len(left), product_id),
+        )
+        conn.commit()
+        return issued
+
+
+def create_order(
+    order_code: str,
+    tg_user_id: int,
+    product_id: int,
+    qty: int,
+    price_usd: float,
+    total_usd: float,
+    total_rub: float,
+    payment_method: str,
+    payment_deadline_ts: int,
+    created_ts: int,
+    payment_meta: str = "",
+) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO orders(
+                order_code, tg_user_id, product_id, qty, price_usd, total_usd, total_rub,
+                payment_method, payment_deadline_ts, created_ts, payment_meta
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                order_code,
+                tg_user_id,
+                product_id,
+                qty,
+                price_usd,
+                total_usd,
+                total_rub,
+                payment_method,
+                payment_deadline_ts,
+                created_ts,
+                payment_meta,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def mark_order_paid(order_code: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        conn.execute("UPDATE orders SET payment_status = 'paid' WHERE order_code = ?", (order_code,))
+        conn.commit()
+        return conn.execute("SELECT * FROM orders WHERE order_code = ?", (order_code,)).fetchone()
+
+
+def get_order(order_code: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM orders WHERE order_code = ?", (order_code,)).fetchone()
+
+
+def add_custom_product(
+    category_name: str,
+    subcategory_name: str,
+    title: str,
+    price_usd: float,
+    product_type: str,
+    stock: int,
+) -> int:
+    with get_conn() as conn:
+        cur = conn.execute("SELECT id FROM categories WHERE name = ?", (category_name,))
+        category = cur.fetchone()
+        if not category:
+            conn.execute("INSERT INTO categories(name) VALUES(?)", (category_name,))
+            category_id = conn.execute("SELECT last_insert_rowid() AS i").fetchone()["i"]
+        else:
+            category_id = category["id"]
+
+        cur = conn.execute(
+            "SELECT id FROM subcategories WHERE category_id = ? AND name = ?",
+            (category_id, subcategory_name),
+        )
+        sub = cur.fetchone()
+        if not sub:
+            conn.execute(
+                "INSERT INTO subcategories(category_id, name) VALUES(?, ?)",
+                (category_id, subcategory_name),
+            )
+            sub_id = conn.execute("SELECT last_insert_rowid() AS i").fetchone()["i"]
+        else:
+            sub_id = sub["id"]
+
+        conn.execute(
+            """
+            INSERT INTO products(subcategory_id, title, product_type, price_usd, stock)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (sub_id, title, product_type, price_usd, stock),
+        )
+        product_id = int(conn.execute("SELECT last_insert_rowid() AS i").fetchone()["i"])
+        conn.commit()
+        return product_id
+
+
+def get_all_user_ids() -> list[int]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT DISTINCT tg_user_id FROM orders").fetchall()
+        return [int(r["tg_user_id"]) for r in rows]
