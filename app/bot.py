@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
 from random import randint
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -17,7 +16,6 @@ from aiogram.types import (
     BotCommandScopeAllPrivateChats,
     BotCommandScopeChat,
     CallbackQuery,
-    InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
 )
@@ -154,8 +152,7 @@ async def send_paid_notify_to_admin(order_code: str) -> None:
         f"Пользователь: {order['tg_user_id']}\n"
         f"Товар: {title}\n"
         f"Кол-во: {order['qty']} шт.\n"
-        f"Сумма: {fmt_money(order['total_usd'])}$ ({fmt_money(order['total_rub'])}₽)\n"
-        f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        f"Сумма: {fmt_money(order['total_usd'])}$ ({fmt_money(order['total_rub'])}₽)"
     )
 
     try:
@@ -196,13 +193,11 @@ async def setup_bot_commands(bot: Bot) -> None:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
     text = (
         "✨ Добро пожаловать в Accel Shop!\n"
         "🏆 Премиум-магазин подписок на нейросети и популярные сервисы.\n"
         "🧩 Здесь аккаунты, подписки, сертификаты и многое другое.\n"
-        "👇 Нажмите кнопку ниже, чтобы начать работу с ботом.\n"
-        f"{now}"
+        "👇 Нажмите кнопку ниже, чтобы начать работу с ботом."
     )
     await message.answer(text, reply_markup=main_kb())
 
@@ -269,6 +264,7 @@ async def cb_product(callback: CallbackQuery) -> None:
     ptype = (product["product_type"] or "").strip()
     hint = PRODUCT_TYPE_HINTS.get(ptype, "Описание типа уточняйте у администратора.")
     status = "В наличии" if product["stock"] > 0 else "Нет в наличии"
+
     text = (
         f"📦 {product['title']}\n"
         f"💰 Цена: ${fmt_money(product['price_usd'])}\n"
@@ -336,6 +332,7 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext) -> None:
     order_code = str(randint(10000000, 99999999))
     now_ts = int(time.time())
     deadline = now_ts + 15 * 60
+
     create_order(
         order_code=order_code,
         tg_user_id=callback.from_user.id,
@@ -355,7 +352,6 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext) -> None:
         f"💰 Цена: {fmt_money(price)} $\n"
         f"📦 Кол-во: {qty} шт.\n"
         f"💡 Заказ: {order_code}\n"
-        f"🕐 Время заказа: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
         f"🕐 Итоговая сумма: {fmt_money(total_rub)} ₽"
     )
     await callback.message.edit_text(text, reply_markup=pay_kb(order_code))
@@ -374,7 +370,6 @@ async def cb_pay(callback: CallbackQuery) -> None:
         await callback.answer("Товар не найден", show_alert=True)
         return
 
-    deadline_dt = datetime.fromtimestamp(order["payment_deadline_ts"]).strftime("%H:%M")
     if method in {"crypto_usdt", "crypto_ton"}:
         plus = settings.cryptobot_invoice_add_percent
         total_rub = float(order["total_rub"]) * (1 + plus / 100)
@@ -387,14 +382,12 @@ async def cb_pay(callback: CallbackQuery) -> None:
             f"💰 Цена: {fmt_money(order['price_usd'])} $\n"
             f"📦 Кол-во: {order['qty']} шт.\n"
             f"💡 Заказ: {order['order_code']}\n"
-            f"🕐 Время заказа: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
             f"🕐 Итоговая сумма: {fmt_money(total_rub)} ₽\n"
             f"💲 Способ оплаты: {payment_name}\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖\n"
             f"Для оплаты перейдите по ссылке:\n{pay_link}\n"
             f"(+%{plus})\n"
             "⏰ Время на оплату: 15 минут\n"
-            f"🕜 Необходимо оплатить до {deadline_dt}\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖"
         )
     else:
@@ -404,13 +397,11 @@ async def cb_pay(callback: CallbackQuery) -> None:
             f"💰 Цена: {fmt_money(order['price_usd'])} $\n"
             f"📦 Кол-во: {order['qty']} шт.\n"
             f"💡 Заказ: {order['order_code']}\n"
-            f"🕐 Время заказа: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
             f"🕐 Итоговая сумма: {fmt_money(order['total_rub'])} ₽\n"
             "💲 Способ оплаты: Bybit\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖\n"
             f"Для оплаты пришлите деньги на Bybit UID {settings.bybit_uid}!\n\n"
             "⏰ Время на оплату: 15 минут\n"
-            f"🕜 Необходимо оплатить до {deadline_dt}\n"
             "➖➖➖➖➖➖➖➖➖➖➖➖"
         )
 
@@ -427,6 +418,7 @@ async def cb_paid(callback: CallbackQuery) -> None:
     if not order:
         await callback.answer("Заказ не найден", show_alert=True)
         return
+
     await send_paid_notify_to_admin(order_code)
     payloads = pop_payloads(int(order["product_id"]), int(order["qty"]))
     product = get_product(int(order["product_id"]))
@@ -444,6 +436,7 @@ async def cb_paid(callback: CallbackQuery) -> None:
             "✅ Оплата подтверждена!\nВаш товар:\n\n"
             f"{data}{extra}\n\n{ADMIN_FOOTER}"
         )
+
     await callback.answer("Спасибо за оплату!")
 
 
@@ -519,30 +512,25 @@ async def cmd_addpayload(message: Message) -> None:
     await message.answer("✅ Добавлено" if ok else "❌ Товар не найден")
 
 
-@router.message(Command("setstock"))
-async def cmd_setstock(message: Message) -> None:
+@router.message(Command("setpayloads"))
+async def cmd_setpayloads(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
-    parts = (message.text or "").split()
-    if len(parts) != 3:
-        await message.answer("Формат: /setstock <product_id> <qty>")
+    rest = (message.text or "").replace("/setpayloads", "", 1).strip()
+    if "|" not in rest:
+        await message.answer("Формат: /setpayloads <product_id> | строка1 ; строка2 ; строка3")
         return
+    pid_s, payloads_blob = [x.strip() for x in rest.split("|", 1)]
     try:
-        pid = int(parts[1])
-        qty = int(parts[2])
+        pid = int(pid_s)
     except ValueError:
-        await message.answer("product_id и qty должны быть числами")
+        await message.answer("product_id должен быть числом")
         return
-    product = get_product(pid)
-    if not product:
-        await message.answer("Товар не найден")
-        return
-    current = int(product["stock"])
-    delta = qty - current
-    from app.db import adjust_stock
-
-    ok = adjust_stock(pid, delta)
-    await message.answer("✅ Остаток обновлен" if ok else "❌ Ошибка обновления")
+    payloads = [item.strip() for item in payloads_blob.split(";") if item.strip()]
+    ok = replace_product_payloads(pid, payloads)
+    await message.answer(
+        f"✅ Выдача заменена. Записей: {len(payloads)}" if ok else "❌ Товар не найден"
+    )
 
 
 @router.message(Command("setname"))
@@ -599,25 +587,31 @@ async def cmd_setdelivery(message: Message) -> None:
     await message.answer("✅ Текст выдачи обновлен" if ok else "❌ Товар не найден")
 
 
-@router.message(Command("setpayloads"))
-async def cmd_setpayloads(message: Message) -> None:
+@router.message(Command("setstock"))
+async def cmd_setstock(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
-    rest = (message.text or "").replace("/setpayloads", "", 1).strip()
-    if "|" not in rest:
-        await message.answer("Формат: /setpayloads <product_id> | строка1 ; строка2 ; строка3")
+    parts = (message.text or "").split()
+    if len(parts) != 3:
+        await message.answer("Формат: /setstock <product_id> <qty>")
         return
-    pid_s, payloads_blob = [x.strip() for x in rest.split("|", 1)]
     try:
-        pid = int(pid_s)
+        pid = int(parts[1])
+        qty = int(parts[2])
     except ValueError:
-        await message.answer("product_id должен быть числом")
+        await message.answer("product_id и qty должны быть числами")
         return
-    payloads = [item.strip() for item in payloads_blob.split(";") if item.strip()]
-    ok = replace_product_payloads(pid, payloads)
-    await message.answer(
-        f"✅ Выдача заменена. Записей: {len(payloads)}" if ok else "❌ Товар не найден"
-    )
+    product = get_product(pid)
+    if not product:
+        await message.answer("Товар не найден")
+        return
+    current = int(product["stock"])
+    delta = qty - current
+
+    from app.db import adjust_stock
+
+    ok = adjust_stock(pid, delta)
+    await message.answer("✅ Остаток обновлен" if ok else "❌ Ошибка обновления")
 
 
 @router.message(Command("order"))
@@ -653,31 +647,4 @@ async def state_broadcast(message: Message, state: FSMContext, bot: Bot) -> None
     if message.from_user.id not in settings.admin_ids:
         return
     await state.clear()
-    text = message.text or ""
-    user_ids = get_all_user_ids()
-    ok_count = 0
-    for uid in user_ids:
-        try:
-            await bot.send_message(uid, text)
-            ok_count += 1
-            await asyncio.sleep(0.03)
-        except Exception:
-            continue
-    await message.answer(f"Рассылка завершена. Доставлено: {ok_count}/{len(user_ids)}")
-
-
-async def run_bot() -> None:
-    bot = Bot(
-        token=settings.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    await bot.delete_webhook(drop_pending_updates=True)
-    await setup_bot_commands(bot)
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    init_db()
-    asyncio.run(run_bot())
+    text = message
