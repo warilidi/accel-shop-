@@ -588,20 +588,79 @@ async def cmd_admin(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
     text = (
-        "Админ-команды:\n"
-        "/additem - добавить новый товар\n"
-        "/addpayload <product_id> | <данные> - добавить 1 товарную единицу\n"
-        "/setpayloads <product_id> | строка1 ; строка2 - заменить всю выдачу\n"
-        "/setname <product_id> | новое название - поменять название\n"
-        "/setdesc <product_id> | новое описание - поменять описание\n"
-        "/setdelivery <product_id> | текст - сообщение после оплаты\n"
-        "/setimage <key> <file_id|url> - назначить картинку\n"
-        "/images - список ключей и текущих картинок\n"
-        "/setstock <product_id> <qty> - установить остаток\n"
-        "/broadcast - рассылка по покупателям\n"
-        "/order <код> - проверить заказ"
+        "🛠 <b>Админ-панель</b>\n"
+        "➖➖➖➖➖➖➖➖➖➖➖➖\n\n"
+
+        "📦 <b>ТОВАРЫ</b>\n\n"
+
+        "<b>/additem</b> — добавить новый товар в каталог.\n"
+        "После команды бот попросит ввести строку в формате:\n"
+        "<code>Категория | Подкатегория | Название | ЦенаUSD | Тип | Остаток</code>\n"
+        "Пример:\n"
+        "<code>Другие сервисы | Telegram | Telegram Premium 3m | 7.5 | ACC | 5</code>\n\n"
+
+        "<b>/setname</b> <code>&lt;product_id&gt; | новое название</code>\n"
+        "Переименовать товар.\n"
+        "Пример: <code>/setname 12 | ChatGPT Plus 1m (NW)</code>\n\n"
+
+        "<b>/setdesc</b> <code>&lt;product_id&gt; | описание</code>\n"
+        "Установить описание товара, которое видит покупатель на карточке.\n"
+        "Пример: <code>/setdesc 12 | Аккаунт с подпиской, работает без VPN</code>\n\n"
+
+        "<b>/setstock</b> <code>&lt;product_id&gt; &lt;количество&gt;</code>\n"
+        "Установить остаток вручную (не прибавляет, а задаёт точное число).\n"
+        "Пример: <code>/setstock 12 50</code>\n\n"
+
+        "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+        "🗝 <b>ВЫДАЧА ТОВАРА</b>\n\n"
+
+        "<b>/addpayload</b> <code>&lt;product_id&gt; | данные</code>\n"
+        "Добавить одну единицу выдачи (логин/ключ/ссылку и т.д.).\n"
+        "Остаток увеличится на 1 автоматически.\n"
+        "Пример: <code>/addpayload 12 | login:pass123</code>\n\n"
+
+        "<b>/setpayloads</b> <code>&lt;product_id&gt; | строка1 ; строка2 ; строка3</code>\n"
+        "Заменить всю выдачу сразу (старые данные удаляются).\n"
+        "Разделитель между единицами — точка с запятой <b>;</b>\n"
+        "Остаток обновится по количеству переданных строк.\n"
+        "Пример: <code>/setpayloads 12 | key-AAA ; key-BBB ; key-CCC</code>\n\n"
+
+        "<b>/setdelivery</b> <code>&lt;product_id&gt; | текст</code>\n"
+        "Текст-инструкция, которая отправляется покупателю после оплаты "
+        "(как активировать, куда вводить и т.д.).\n"
+        "Пример: <code>/setdelivery 12 | Введите ключ на сайте example.com → Активировать</code>\n\n"
+
+        "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+        "🖼 <b>КАРТИНКИ</b>\n\n"
+
+        "<b>/setimage</b> <code>&lt;key&gt; &lt;file_id или ссылка&gt;</code>\n"
+        "Назначить картинку для экрана бота.\n"
+        "Чтобы получить file_id — отправьте фото боту и скопируйте ID из ответа.\n"
+        "Доступные ключи:\n"
+        "<code>start</code> — стартовый экран\n"
+        "<code>categories</code> — экран каталога\n"
+        "<code>rules</code> — экран правил\n"
+        "<code>chatgpt, perplexity, grok, gemini, cursor, claude, spotify, windows, capcut</code> — экраны сервисов\n"
+        "Пример: <code>/setimage rules https://i.imgur.com/abc.jpg</code>\n\n"
+
+        "<b>/images</b> — показать список всех ключей и статус (задана картинка или нет).\n\n"
+
+        "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+        "📋 <b>ЗАКАЗЫ И РАССЫЛКА</b>\n\n"
+
+        "<b>/order</b> <code>&lt;код заказа&gt;</code>\n"
+        "Проверить статус и данные конкретного заказа.\n"
+        "Пример: <code>/order 47382910</code>\n\n"
+
+        "<b>/broadcast</b> — сделать рассылку всем покупателям, которые хоть раз делали заказ.\n"
+        "После команды просто отправьте текст сообщения.\n\n"
+
+        "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+        "💡 <b>Как узнать product_id?</b>\n"
+        "Откройте нужный товар в каталоге — id отображается в callback кнопки. "
+        "Либо используйте /order после тестовой покупки — там виден product_id в данных заказа."
     )
-    await message.answer(text)
+    await message.answer(text, parse_mode="HTML")
 
 
 @router.message(Command("setimage"))
