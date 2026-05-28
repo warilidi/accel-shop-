@@ -76,7 +76,14 @@ def init_db() -> None:
         )
         """
     )
-
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS visuals (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
     # Lightweight migration for existing databases.
     try:
         cur.execute("ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT ''")
@@ -135,6 +142,14 @@ def list_subcategories(category_id: int) -> list[sqlite3.Row]:
             "SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY id",
             (category_id,),
         ).fetchall()
+
+
+def get_subcategory(subcategory_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT id, category_id, name FROM subcategories WHERE id = ?",
+            (subcategory_id,),
+        ).fetchone()
 
 
 def list_products(subcategory_id: int) -> list[sqlite3.Row]:
@@ -360,3 +375,30 @@ def get_all_user_ids() -> list[int]:
     with get_conn() as conn:
         rows = conn.execute("SELECT DISTINCT tg_user_id FROM orders").fetchall()
         return [int(r["tg_user_id"]) for r in rows]
+
+
+def set_visual(key: str, value: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO visuals(key, value)
+            VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key.strip().lower(), value.strip()),
+        )
+        conn.commit()
+
+
+def get_visual(key: str) -> str:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT value FROM visuals WHERE key = ?",
+            (key.strip().lower(),),
+        ).fetchone()
+        return row["value"] if row else ""
+
+
+def list_visuals() -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute("SELECT key, value FROM visuals ORDER BY key").fetchall()
