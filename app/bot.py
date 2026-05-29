@@ -932,4 +932,3 @@ async def run_bot() -> None:
 if __name__ == "__main__":
     init_db()
     asyncio.run(run_bot())
-    
