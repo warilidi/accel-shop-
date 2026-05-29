@@ -51,17 +51,23 @@ ADMIN_FOOTER = "— 💎 Админ/Связь/Опт - @Dolzu"
 settings = load_settings()
 
 VISUALS = {
-    "start": os.getenv("IMG_START", "").strip(),
-    "categories": os.getenv("IMG_CATEGORIES", "").strip(),
-    "chatgpt": os.getenv("IMG_CHATGPT", "").strip(),
-    "perplexity": os.getenv("IMG_PERPLEXITY", "").strip(),
-    "grok": os.getenv("IMG_GROK", "").strip(),
-    "gemini": os.getenv("IMG_GEMINI", "").strip(),
-    "cursor": os.getenv("IMG_CURSOR", "").strip(),
-    "claude": os.getenv("IMG_CLAUDE", "").strip(),
-    "windows": os.getenv("IMG_WINDOWS", "").strip(),
-    "capcut": os.getenv("IMG_CAPCUT", "").strip(),
-    "spotify": os.getenv("IMG_SPOTIFY", "").strip(),
+    "start":       os.getenv("IMG_START",       "https://t.me/faoaoasad/9").strip(),
+    "categories":  os.getenv("IMG_CATEGORIES",  "https://t.me/faoaoasad/2").strip(),
+    "chatgpt":     os.getenv("IMG_CHATGPT",     "https://t.me/faoaoasad/24").strip(),
+    "perplexity":  os.getenv("IMG_PERPLEXITY",  "https://t.me/faoaoasad/4").strip(),
+    "grok":        os.getenv("IMG_GROK",        "https://t.me/faoaoasad/5").strip(),
+    "gemini":      os.getenv("IMG_GEMINI",      "https://t.me/faoaoasad/6").strip(),
+    "cursor":      os.getenv("IMG_CURSOR",      "https://t.me/faoaoasad/7").strip(),
+    "claude":      os.getenv("IMG_CLAUDE",      "https://t.me/faoaoasad/8").strip(),
+    "spotify":     os.getenv("IMG_SPOTIFY",     "https://t.me/faoaoasad/10").strip(),
+    "windows":     os.getenv("IMG_WINDOWS",     "https://t.me/faoaoasad/13").strip(),
+    "discord":     os.getenv("IMG_DISCORD",     "https://t.me/faoaoasad/14").strip(),
+    "apple":       os.getenv("IMG_APPLE",       "https://t.me/faoaoasad/15").strip(),
+    "amazon":      os.getenv("IMG_AMAZON",      "https://t.me/faoaoasad/16").strip(),
+    "capcut":      os.getenv("IMG_CAPCUT",      "https://t.me/faoaoasad/17").strip(),
+    "picsart":     os.getenv("IMG_PICSART",     "https://t.me/faoaoasad/18").strip(),
+    "youtube":     os.getenv("IMG_YOUTUBE",     "https://t.me/faoaoasad/19").strip(),
+    "gmail":       os.getenv("IMG_GMAIL",       "https://t.me/faoaoasad/20").strip(),
 }
 
 
@@ -76,18 +82,10 @@ class AdminFlow(StatesGroup):
 
 
 VISUAL_KEYS = [
-    "start",
-    "categories",
-    "rules",
-    "chatgpt",
-    "perplexity",
-    "grok",
-    "gemini",
-    "cursor",
-    "claude",
-    "windows",
-    "capcut",
-    "spotify",
+    "start", "categories", "rules",
+    "chatgpt", "perplexity", "grok", "gemini", "cursor", "claude",
+    "spotify", "windows", "discord", "apple", "amazon",
+    "capcut", "picsart", "youtube", "gmail",
 ]
 
 
@@ -197,9 +195,18 @@ def get_service_visual(subcategory_name: str) -> str:
         "gemini": "gemini",
         "cursor": "cursor",
         "claude": "claude",
-        "windows": "windows",
-        "capcut": "capcut",
+        "suno ai": "chatgpt",
         "spotify": "spotify",
+        "windows": "windows",
+        "discord": "discord",
+        "apple": "apple",
+        "amazon prime": "amazon",
+        "capcut": "capcut",
+        "picsart": "picsart",
+        "youtube": "youtube",
+        "почты gmail": "gmail",
+        "netflix": "categories",
+        "steam": "categories",
     }
     key = mapping.get(normalized, "")
     return get_visual_value(key) if key else ""
