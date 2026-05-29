@@ -84,6 +84,16 @@ def init_db() -> None:
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_balances (
+            tg_user_id INTEGER PRIMARY KEY,
+            balance_usd REAL NOT NULL DEFAULT 0,
+            balance_rub REAL NOT NULL DEFAULT 0,
+            updated_ts INTEGER NOT NULL
+        )
+        """
+    )
     # Lightweight migration for existing databases.
     try:
         cur.execute("ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT ''")
@@ -91,6 +101,19 @@ def init_db() -> None:
         pass
     try:
         cur.execute("ALTER TABLE products ADD COLUMN delivery_text TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_balances (
+                tg_user_id INTEGER PRIMARY KEY,
+                balance_usd REAL NOT NULL DEFAULT 0,
+                balance_rub REAL NOT NULL DEFAULT 0,
+                updated_ts INTEGER NOT NULL
+            )
+            """
+        )
     except sqlite3.OperationalError:
         pass
 
@@ -402,3 +425,74 @@ def get_visual(key: str) -> str:
 def list_visuals() -> list[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute("SELECT key, value FROM visuals ORDER BY key").fetchall()
+
+
+# ─── Balance functions ─────────────────────────────────────────────────────
+
+
+def get_user_balance(tg_user_id: int) -> tuple[float, float]:
+    """Returns (balance_usd, balance_rub) for user, or (0.0, 0.0) if not found."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT balance_usd, balance_rub FROM user_balances WHERE tg_user_id = ?",
+            (tg_user_id,),
+        ).fetchone()
+        if row:
+            return float(row["balance_usd"]), float(row["balance_rub"])
+        return 0.0, 0.0
+
+
+def add_balance(tg_user_id: int, amount_usd: float, amount_rub: float) -> bool:
+    """Add funds to user balance."""
+    import time
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_balances(tg_user_id, balance_usd, balance_rub, updated_ts)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(tg_user_id) DO UPDATE SET 
+                balance_usd = balance_usd + ?,
+                balance_rub = balance_rub + ?,
+                updated_ts = ?
+            """,
+            (tg_user_id, amount_usd, amount_rub, int(time.time()), amount_usd, amount_rub, int(time.time())),
+        )
+        conn.commit()
+        return True
+
+
+def withdraw_balance(tg_user_id: int, amount_usd: float, amount_rub: float) -> bool:
+    """Withdraw funds from user balance. Returns False if insufficient funds."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT balance_usd FROM user_balances WHERE tg_user_id = ?",
+            (tg_user_id,),
+        ).fetchone()
+        if not row or row["balance_usd"] < amount_usd:
+            return False
+        import time
+        conn.execute(
+            "UPDATE user_balances SET balance_usd = balance_usd - ?, balance_rub = balance_rub - ?, updated_ts = ? WHERE tg_user_id = ?",
+            (amount_usd, amount_rub, int(time.time()), tg_user_id),
+        )
+        conn.commit()
+        return True
+
+
+def set_balance(tg_user_id: int, amount_usd: float, amount_rub: float) -> bool:
+    """Set exact balance for user (admin function)."""
+    import time
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_balances(tg_user_id, balance_usd, balance_rub, updated_ts)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(tg_user_id) DO UPDATE SET 
+                balance_usd = ?,
+                balance_rub = ?,
+                updated_ts = ?
+            """,
+            (tg_user_id, amount_usd, amount_rub, int(time.time()), amount_usd, amount_rub, int(time.time())),
+        )
+        conn.commit()
+        return True
