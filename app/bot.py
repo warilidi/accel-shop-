@@ -59,6 +59,7 @@ from app.db import (
     set_button_text,
     set_order_invoice_id,
     set_order_payment_method,
+    set_order_status,
     set_visual,
     update_product_content,
     withdraw_balance,
@@ -812,6 +813,35 @@ async def cb_pay(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+async def _send_bybit_confirm_to_admins(bot: Bot, order_code: str) -> None:
+    """Отправляет админам запрос на подтверждение Bybit-оплаты."""
+    order = get_order(order_code)
+    if not order:
+        return
+    product = get_product(int(order["product_id"]))
+    title = product["title"] if product else "—"
+    text = (
+        "🔶 <b>Запрос подтверждения оплаты Bybit</b>\n"
+        "➖➖➖➖➖➖➖➖➖\n"
+        f"📋 Заказ: <code>{order['order_code']}</code>\n"
+        f"👤 Пользователь: <code>{order['tg_user_id']}</code>\n"
+        f"📦 Товар: {title}\n"
+        f"🔢 Кол-во: {order['qty']} шт.\n"
+        f"💰 Сумма: {fmt(order['total_usd'])}$ ({fmt(order['total_rub'])}₽)\n"
+        "➖➖➖➖➖➖➖➖➖\n"
+        "Подтвердите или отклоните оплату:"
+    )
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Подтвердить", callback_data=f"adm_approve:{order_code}")
+    kb.button(text="❌ Отклонить", callback_data=f"adm_reject:{order_code}")
+    kb.adjust(2)
+    for admin_id in settings.admin_ids:
+        try:
+            await bot.send_message(admin_id, text, reply_markup=kb.as_markup())
+        except Exception:
+            pass
+
+
 @router.callback_query(F.data.startswith("check:"))
 async def cb_check_payment(callback: CallbackQuery) -> None:
     code = callback.data.split(":")[1]
@@ -865,6 +895,24 @@ async def cb_paid(callback: CallbackQuery) -> None:
         await callback.answer("Заказ уже оплачен!", show_alert=True)
         return
 
+    if order["payment_status"] == "awaiting_confirm":
+        await callback.answer("Заказ уже ожидает подтверждения админа.", show_alert=True)
+        return
+
+    if order["payment_method"] == "bybit":
+        set_order_status(code, "awaiting_confirm")
+        await _send_bybit_confirm_to_admins(callback.bot, code)
+
+        text = (
+            "⏳ <b>Заказ отправлен на проверку</b>\n\n"
+            f"🔖 Код заказа: <code>{code}</code>\n"
+            "Администратор проверит оплату и подтвердит заказ.\n"
+            "Вы получите уведомление автоматически."
+        )
+        await safe_edit(callback, text, InlineKeyboardBuilder().as_markup())
+        await callback.answer("Заказ отправлен на проверку администратору")
+        return
+
     mark_order_paid(code)
     await notify_admin_about_payment(code)
 
@@ -889,6 +937,70 @@ async def cb_paid(callback: CallbackQuery) -> None:
 
     await safe_edit(callback, text, InlineKeyboardBuilder().as_markup())
     await callback.answer("Спасибо за покупку! 🎉")
+
+
+@router.callback_query(F.data.startswith("adm_approve:"))
+async def cb_admin_approve(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in settings.admin_ids:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    code = callback.data.split(":")[1]
+    order = get_order(code)
+
+    if not order:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
+
+    if order["payment_status"] == "paid":
+        await callback.answer("Заказ уже подтверждён", show_alert=True)
+        return
+
+    await _fulfill_order(callback.bot, code)
+
+    await safe_edit(
+        callback,
+        f"✅ Заказ <code>{code}</code> подтверждён. Товар выдан пользователю.",
+        InlineKeyboardBuilder().as_markup(),
+    )
+    await callback.answer("Заказ подтверждён!")
+
+
+@router.callback_query(F.data.startswith("adm_reject:"))
+async def cb_admin_reject(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in settings.admin_ids:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    code = callback.data.split(":")[1]
+    order = get_order(code)
+
+    if not order:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
+
+    if order["payment_status"] == "paid":
+        await callback.answer("Заказ уже подтверждён, нельзя отклонить", show_alert=True)
+        return
+
+    set_order_status(code, "rejected")
+
+    try:
+        await callback.bot.send_message(
+            int(order["tg_user_id"]),
+            f"❌ <b>Оплата по заказу <code>{code}</code> не подтверждена.</b>\n\n"
+            f"Свяжитесь с администратором: {settings.admin_contact}",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
+
+    await safe_edit(
+        callback,
+        f"❌ Заказ <code>{code}</code> отклонён.",
+        InlineKeyboardBuilder().as_markup(),
+    )
+    await callback.answer("Заказ отклонён")
 
 
 # ─── Получение file_id фото ─────────────────────────────────────────────────
