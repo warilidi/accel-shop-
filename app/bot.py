@@ -31,6 +31,7 @@ from app.db import (
     adjust_stock,
     create_order,
     get_all_user_ids,
+    get_button_text,
     get_conn,
     get_order,
     get_product,
@@ -38,6 +39,7 @@ from app.db import (
     get_user_balance,
     get_visual,
     init_db,
+    list_all_buttons,
     list_categories,
     list_products,
     list_subcategories,
@@ -45,7 +47,10 @@ from app.db import (
     mark_order_paid,
     pop_payloads,
     replace_product_payloads,
+    reset_all_buttons,
+    reset_button_text,
     set_balance,
+    set_button_text,
     set_visual,
     update_product_content,
     withdraw_balance,
@@ -104,6 +109,7 @@ class AdminFlow(StatesGroup):
     add_product_wait = State()
     broadcast_wait   = State()
     set_balance_wait = State()
+    edit_product_wait = State()
 
 
 # ─── Вспомогательные функции ─────────────────────────────────────────────────
@@ -143,23 +149,23 @@ def normalize_link(value: str, fallback: str) -> str:
 
 def main_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🛍️ Товары и услуги", callback_data="menu:catalog")
-    kb.button(text="💳 Баланс",           callback_data="menu:balance")
-    kb.button(text="💎 Опт",              url=normalize_link(settings.wholesale_link, "https://t.me/Dolzu"))
-    kb.button(text="🛟 Помощь",           url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
-    kb.button(text="👤 Профиль",          callback_data="menu:profile")
-    kb.button(text="📜 Правила",          callback_data="menu:rules")
+    kb.button(text=get_button_text("catalog"),   callback_data="menu:catalog")
+    kb.button(text=get_button_text("balance"),   callback_data="menu:balance")
+    kb.button(text=get_button_text("wholesale"), url=normalize_link(settings.wholesale_link, "https://t.me/Dolzu"))
+    kb.button(text=get_button_text("help"),      url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
+    kb.button(text=get_button_text("profile"),   callback_data="menu:profile")
+    kb.button(text=get_button_text("rules"),     callback_data="menu:rules")
     kb.adjust(1, 1, 2, 2)
     return kb.as_markup()
 
 
 def rules_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="📄 Пользовательское соглашение",
+    kb.button(text=get_button_text("agree"),
               url="https://telegra.ph/POLZOVATELSKOE-SOGLASHENIE-01-07-19")
-    kb.button(text="🔒 Политика конфиденциальности",
+    kb.button(text=get_button_text("privacy"),
               url="https://telegra.ph/Politika-konfidencialnosti-01-07-38")
-    kb.button(text="↩️ Назад", callback_data="go:main")
+    kb.button(text=get_button_text("back"), callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -168,7 +174,7 @@ def categories_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for cat in list_categories():
         kb.button(text=cat["name"], callback_data=f"cat:{cat['id']}")
-    kb.button(text="◀️ Назад", callback_data="go:main")
+    kb.button(text=get_button_text("back"), callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -177,7 +183,7 @@ def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for sub in list_subcategories(category_id):
         kb.button(text=sub["name"], callback_data=f"sub:{sub['id']}")
-    kb.button(text="◀️ Назад", callback_data="menu:catalog")
+    kb.button(text=get_button_text("back"), callback_data="menu:catalog")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -195,7 +201,7 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
             text=f"{icon} {title} — ${fmt(p['price_usd'])}",
             callback_data=f"prod:{p['id']}",
         )
-    kb.button(text="◀️ Назад", callback_data="go:cats")
+    kb.button(text=get_button_text("back"), callback_data="go:cats")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -204,26 +210,26 @@ def qty_kb(product_id: int, max_qty: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for i in range(1, max_qty + 1):
         kb.button(text=str(i), callback_data=f"qty:{product_id}:{i}")
-    kb.button(text="◀️ Назад", callback_data=f"prod:{product_id}")
+    kb.button(text=get_button_text("back"), callback_data=f"prod:{product_id}")
     kb.adjust(4)
     return kb.as_markup()
 
 
 def pay_kb(order_code: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="💰 CryptoBot USDT", callback_data=f"pay:crypto_usdt:{order_code}")
-    kb.button(text="💎 CryptoBot TON",  callback_data=f"pay:crypto_ton:{order_code}")
-    kb.button(text="🔶 Bybit",          callback_data=f"pay:bybit:{order_code}")
-    kb.button(text="💳 Баланс",         callback_data=f"pay:balance:{order_code}")
+    kb.button(text=get_button_text("crypto_usdt"), callback_data=f"pay:crypto_usdt:{order_code}")
+    kb.button(text=get_button_text("crypto_ton"),  callback_data=f"pay:crypto_ton:{order_code}")
+    kb.button(text=get_button_text("bybit"),       callback_data=f"pay:bybit:{order_code}")
+    kb.button(text=get_button_text("balance_pay"), callback_data=f"pay:balance:{order_code}")
     kb.adjust(1)
     return kb.as_markup()
 
 
 def balance_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="➕ Пополнить баланс", callback_data="balance:topup")
-    kb.button(text="📊 История",         callback_data="balance:history")
-    kb.button(text="◀️ Назад",           callback_data="go:main")
+    kb.button(text=get_button_text("topup"),   callback_data="balance:topup")
+    kb.button(text=get_button_text("history"), callback_data="balance:history")
+    kb.button(text=get_button_text("back"),    callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -300,6 +306,7 @@ async def setup_commands(bot: Bot) -> None:
     admin_cmds = [
         BotCommand(command="admin",       description="Список всех команд"),
         BotCommand(command="additem",     description="Добавить товар"),
+        BotCommand(command="editproduct", description="Редактировать товар"),
         BotCommand(command="addpayload",  description="Добавить 1 единицу выдачи"),
         BotCommand(command="setpayloads", description="Заменить всю выдачу"),
         BotCommand(command="setname",     description="Переименовать товар"),
@@ -312,6 +319,10 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="order",       description="Проверить заказ по коду"),
         BotCommand(command="broadcast",   description="Рассылка всем покупателям"),
         BotCommand(command="setbalance",  description="Установить баланс пользователю"),
+        BotCommand(command="setbutton",   description="Изменить текст кнопки"),
+        BotCommand(command="buttons",     description="Список всех кнопок"),
+        BotCommand(command="resetbutton", description="Вернуть кнопку к стандарту"),
+        BotCommand(command="resetallbuttons", description="Вернуть все кнопки"),
     ]
     for admin_id in settings.admin_ids:
         try:
@@ -384,7 +395,7 @@ async def cb_balance_topup(callback: CallbackQuery) -> None:
     )
     kb = InlineKeyboardBuilder()
     kb.button(text="💬 Написать админу", url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
-    kb.button(text="◀️ Назад", callback_data="menu:balance")
+    kb.button(text=get_button_text("back"), callback_data="menu:balance")
     kb.adjust(1)
     await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
@@ -407,7 +418,7 @@ async def cb_balance_history(callback: CallbackQuery) -> None:
             lines.append(f"{fmt(row['total_usd'])}$ — {status}")
         text = "\n".join(lines)
     kb = InlineKeyboardBuilder()
-    kb.button(text="◀️ Назад", callback_data="menu:balance")
+    kb.button(text=get_button_text("back"), callback_data="menu:balance")
     await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
 
@@ -453,7 +464,7 @@ async def cb_profile(callback: CallbackQuery) -> None:
         f"💳 На балансе: <b>${fmt(balance_usd)}</b> / <b>{fmt(balance_rub)}₽</b>"
     )
     kb = InlineKeyboardBuilder()
-    kb.button(text="◀️ Назад", callback_data="go:main")
+    kb.button(text=get_button_text("back"), callback_data="go:main")
     await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
 
@@ -509,8 +520,8 @@ async def cb_product(callback: CallbackQuery) -> None:
 
     kb = InlineKeyboardBuilder()
     if product["stock"] > 0:
-        kb.button(text="🛒 Купить", callback_data=f"buy:{product_id}")
-    kb.button(text="◀️ Назад", callback_data=f"sub:{product['subcategory_id']}")
+        kb.button(text=get_button_text("buy"), callback_data=f"buy:{product_id}")
+    kb.button(text=get_button_text("back"), callback_data=f"sub:{product['subcategory_id']}")
     kb.adjust(1)
 
     await safe_edit(callback, text, kb.as_markup())
@@ -668,7 +679,7 @@ async def cb_pay(callback: CallbackQuery) -> None:
         )
 
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Я оплатил", callback_data=f"paid:{code}")
+    kb.button(text=get_button_text("confirm_paid"), callback_data=f"paid:{code}")
     await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
 
@@ -794,6 +805,71 @@ async def state_add_product(message: Message, state: FSMContext) -> None:
     pid = add_custom_product(category, subcategory, title, price, ptype, stock)
     await state.clear()
     await message.answer(f"✅ Товар добавлен.\n🆔 product_id = <code>{pid}</code>")
+
+
+@router.message(Command("editproduct"))
+async def cmd_editproduct(message: Message, state: FSMContext) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    await state.set_state(AdminFlow.edit_product_wait)
+    await message.answer(
+        "✏️ Редактирование товара\n\n"
+        "Введите данные в формате:\n"
+        "<code>product_id | название | описание | цена | тип | остаток</code>\n\n"
+        "Пример:\n"
+        "<code>1 | Telegram Premium | 3 месяца доступа | 7.5 | ACC | 5</code>"
+    )
+
+
+@router.message(AdminFlow.edit_product_wait)
+async def state_editproduct(message: Message, state: FSMContext) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    parts = [p.strip() for p in (message.text or "").split("|")]
+    if len(parts) != 6:
+        await message.answer("Неверный формат. Нужно ровно 6 полей через |")
+        return
+    
+    try:
+        pid = int(parts[0])
+        title = parts[1]
+        desc = parts[2]
+        price = float(parts[3].replace(",", "."))
+        ptype = parts[4]
+        stock = int(parts[5])
+    except ValueError:
+        await message.answer("Неверный формат данных. Проверьте числовые поля.")
+        return
+    
+    product = get_product(pid)
+    if not product:
+        await message.answer("❌ Товар не найден.")
+        return
+    
+    # Обновляем название, описание, тип
+    update_product_content(pid, title=title, description=desc)
+    
+    # Обновляем цену и остаток через UPDATE
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE products SET price_usd = ?, product_type = ? WHERE id = ?",
+            (price, ptype, pid),
+        )
+        conn.commit()
+    
+    # Обновляем остаток
+    current_stock = int(product["stock"])
+    delta = stock - current_stock
+    adjust_stock(pid, delta)
+    
+    await state.clear()
+    await message.answer(
+        f"✅ Товар обновлен!\n"
+        f"🆔 ID: {pid}\n"
+        f"📝 Название: {title}\n"
+        f"💰 Цена: ${fmt(price)}\n"
+        f"📊 Остаток: {stock} шт."
+    )
 
 
 @router.message(Command("addpayload"))
@@ -971,6 +1047,66 @@ async def state_set_balance(message: Message, state: FSMContext) -> None:
     await message.answer(f"✅ Баланс установлен.\n👤 User: {uid}\n💰 Баланс: ${fmt(amount_usd)} / {fmt(amount_rub)}₽")
 
 
+# ─── Управление кнопками ──────────────────────────────────────────────────
+
+@router.message(Command("setbutton"))
+async def cmd_setbutton(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setbutton", "", 1).strip()
+    if "|" not in rest:
+        await message.answer("Формат: /setbutton <button_id> | <новый текст>")
+        return
+    bid, text = [x.strip() for x in rest.split("|", 1)]
+    
+    all_buttons = list_all_buttons()
+    if bid not in all_buttons:
+        available = ", ".join(all_buttons.keys())
+        await message.answer(f"❌ Неизвестная кнопка. Доступные: {available}")
+        return
+    
+    set_button_text(bid, text)
+    await message.answer(f"✅ Кнопка <b>{bid}</b> обновлена на <b>{text}</b>")
+
+
+@router.message(Command("buttons"))
+async def cmd_buttons(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    all_buttons = list_all_buttons()
+    lines = ["🔘 <b>Все доступные кнопки:</b>\n"]
+    for bid, btext in sorted(all_buttons.items()):
+        lines.append(f"<code>{bid}</code> → {btext}")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("resetbutton"))
+async def cmd_resetbutton(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2:
+        await message.answer("Формат: /resetbutton <button_id>")
+        return
+    bid = parts[1].strip()
+    
+    all_buttons = list_all_buttons()
+    if bid not in all_buttons:
+        await message.answer(f"❌ Неизвестная кнопка: {bid}")
+        return
+    
+    reset_button_text(bid)
+    await message.answer(f"✅ Кнопка <b>{bid}</b> вернена к стандарту")
+
+
+@router.message(Command("resetallbuttons"))
+async def cmd_resetallbuttons(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    reset_all_buttons()
+    await message.answer("✅ Все кнопки вернены к стандартам")
+
+
 # ─── Рассылка ──────────────────────────────────────────────────────────
 
 @router.message(Command("broadcast"))
@@ -1013,6 +1149,9 @@ async def cmd_admin(message: Message) -> None:
         "<b>/additem</b> — добавить новый товар.\n"
         "Формат: <code>Категория | Подкатегория | Название | Цена | Тип | Остаток</code>\n\n"
 
+        "<b>/editproduct</b> — редактировать существующий товар.\n"
+        "Формат: <code>ID | название | описание | цена | тип | остаток</code>\n\n"
+
         "<b>/setname</b> <code>ID | новое название</code>\n"
         "<b>/setdesc</b> <code>ID | описание товара</code>\n"
         "<b>/setstock</b> <code>ID количество</code>\n\n"
@@ -1029,6 +1168,12 @@ async def cmd_admin(message: Message) -> None:
 
         "💳 <b>Баланс</b>\n"
         "<b>/setbalance</b> — установить баланс пользователю.\n\n"
+
+        "🔘 <b>Кнопки</b>\n"
+        "<b>/setbutton</b> <code>button_id | новый текст</code> — изменить кнопку.\n"
+        "<b>/buttons</b> — список всех кнопок.\n"
+        "<b>/resetbutton</b> <code>button_id</code> — вернуть кнопку.\n"
+        "<b>/resetallbuttons</b> — вернуть все кнопки.\n\n"
 
         "📋 <b>Прочее</b>\n"
         "<b>/order</b> <code>код</code> — информация о заказе.\n"
