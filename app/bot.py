@@ -50,25 +50,7 @@ router = Router()
 ADMIN_FOOTER = "— 💎 Админ/Связь/Опт - @Dolzu"
 settings = load_settings()
 
-VISUALS = {
-    "start":       os.getenv("IMG_START",       "https://t.me/faoaoasad/9").strip(),
-    "categories":  os.getenv("IMG_CATEGORIES",  "https://t.me/faoaoasad/2").strip(),
-    "chatgpt":     os.getenv("IMG_CHATGPT",     "https://t.me/faoaoasad/24").strip(),
-    "perplexity":  os.getenv("IMG_PERPLEXITY",  "https://t.me/faoaoasad/4").strip(),
-    "grok":        os.getenv("IMG_GROK",        "https://t.me/faoaoasad/5").strip(),
-    "gemini":      os.getenv("IMG_GEMINI",      "https://t.me/faoaoasad/6").strip(),
-    "cursor":      os.getenv("IMG_CURSOR",      "https://t.me/faoaoasad/7").strip(),
-    "claude":      os.getenv("IMG_CLAUDE",      "https://t.me/faoaoasad/8").strip(),
-    "spotify":     os.getenv("IMG_SPOTIFY",     "https://t.me/faoaoasad/10").strip(),
-    "windows":     os.getenv("IMG_WINDOWS",     "https://t.me/faoaoasad/13").strip(),
-    "discord":     os.getenv("IMG_DISCORD",     "https://t.me/faoaoasad/14").strip(),
-    "apple":       os.getenv("IMG_APPLE",       "https://t.me/faoaoasad/15").strip(),
-    "amazon":      os.getenv("IMG_AMAZON",      "https://t.me/faoaoasad/16").strip(),
-    "capcut":      os.getenv("IMG_CAPCUT",      "https://t.me/faoaoasad/17").strip(),
-    "picsart":     os.getenv("IMG_PICSART",     "https://t.me/faoaoasad/18").strip(),
-    "youtube":     os.getenv("IMG_YOUTUBE",     "https://t.me/faoaoasad/19").strip(),
-    "gmail":       os.getenv("IMG_GMAIL",       "https://t.me/faoaoasad/20").strip(),
-}
+VISUALS: dict[str, str] = {}
 
 
 class BuyFlow(StatesGroup):
@@ -700,6 +682,28 @@ async def cmd_images(message: Message) -> None:
         current = rows.get(key) or VISUALS.get(key, "")
         lines.append(f"{key}: {'✅ задано' if current else '❌ пусто'}")
     await message.answer("Картинки:\n" + "\n".join(lines))
+
+
+@router.message(Command("getfileid"))
+async def cmd_getfileid(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    await message.answer(
+        "📸 Отправьте фото следующим сообщением — я верну его <code>file_id</code>.\n"
+        "Затем используйте:\n<code>/setimage &lt;key&gt; &lt;file_id&gt;</code>"
+    )
+
+
+@router.message(F.photo)
+async def handle_photo(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    file_id = message.photo[-1].file_id
+    await message.answer(
+        f"📋 <b>file_id фото:</b>\n<code>{file_id}</code>\n\n"
+        f"Используйте:\n<code>/setimage &lt;key&gt; {file_id}</code>\n\n"
+        f"Доступные ключи: {', '.join(VISUAL_KEYS)}"
+    )
 
 
 @router.message(Command("additem"))
