@@ -135,6 +135,10 @@ def init_db() -> None:
         )
     except sqlite3.OperationalError:
         pass
+    try:
+        cur.execute("ALTER TABLE orders ADD COLUMN invoice_id INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
 
@@ -176,6 +180,26 @@ def seed_catalog(conn: sqlite3.Connection, catalog: list[dict[str, Any]]) -> Non
 def list_categories() -> list[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute("SELECT id, name FROM categories ORDER BY id").fetchall()
+
+
+def rename_category(category_id: int, new_name: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute("UPDATE categories SET name = ? WHERE id = ?", (new_name.strip(), category_id))
+        conn.commit()
+        return True
+
+
+def rename_subcategory(subcategory_id: int, new_name: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM subcategories WHERE id = ?", (subcategory_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute("UPDATE subcategories SET name = ? WHERE id = ?", (new_name.strip(), subcategory_id))
+        conn.commit()
+        return True
 
 
 def list_subcategories(category_id: int) -> list[sqlite3.Row]:
@@ -593,3 +617,62 @@ def reset_all_buttons() -> bool:
         conn.execute("DELETE FROM button_texts")
         conn.commit()
         return True
+
+
+# ─── Invoice / auto-payment helpers ──────────────────────────────────────
+
+
+def set_order_invoice_id(order_code: str, invoice_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE orders SET invoice_id = ? WHERE order_code = ?",
+            (invoice_id, order_code),
+        )
+        conn.commit()
+
+
+def set_order_payment_method(order_code: str, method: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE orders SET payment_method = ? WHERE order_code = ?",
+            (method, order_code),
+        )
+        conn.commit()
+
+
+def get_pending_crypto_orders() -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM orders
+            WHERE payment_status = 'pending'
+              AND invoice_id > 0
+              AND payment_method IN ('crypto_usdt', 'crypto_ton')
+            ORDER BY created_ts
+            """,
+        ).fetchall()
+
+
+def cancel_expired_orders() -> list[sqlite3.Row]:
+    import time
+    now = int(time.time())
+    with get_conn() as conn:
+        expired = conn.execute(
+            """
+            SELECT * FROM orders
+            WHERE payment_status = 'pending'
+              AND payment_deadline_ts < ?
+            """,
+            (now,),
+        ).fetchall()
+        if expired:
+            conn.execute(
+                """
+                UPDATE orders SET payment_status = 'expired'
+                WHERE payment_status = 'pending'
+                  AND payment_deadline_ts < ?
+                """,
+                (now,),
+            )
+            conn.commit()
+        return expired

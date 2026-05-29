@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from random import randint
@@ -24,16 +25,19 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
+from app.cryptobot import check_invoice_status, create_invoice
 from app.db import (
     add_balance,
     add_custom_product,
     add_product_payload,
     adjust_stock,
+    cancel_expired_orders,
     create_order,
     get_all_user_ids,
     get_button_text,
     get_conn,
     get_order,
+    get_pending_crypto_orders,
     get_product,
     get_subcategory,
     get_user_balance,
@@ -46,15 +50,21 @@ from app.db import (
     list_visuals,
     mark_order_paid,
     pop_payloads,
+    rename_category,
+    rename_subcategory,
     replace_product_payloads,
     reset_all_buttons,
     reset_button_text,
     set_balance,
     set_button_text,
+    set_order_invoice_id,
+    set_order_payment_method,
     set_visual,
     update_product_content,
     withdraw_balance,
 )
+
+logger = logging.getLogger(__name__)
 
 # ─── Инициализация ────────────────────────────────────────────────────────
 
@@ -294,6 +304,83 @@ async def notify_admin_about_payment(order_code: str) -> None:
         pass
 
 
+async def _fulfill_order(bot: Bot, order_code: str) -> None:
+    """Подтверждает оплату, выдаёт товар и уведомляет пользователя."""
+    order = get_order(order_code)
+    if not order or order["payment_status"] == "paid":
+        return
+
+    mark_order_paid(order_code)
+    await notify_admin_about_payment(order_code)
+
+    product       = get_product(int(order["product_id"]))
+    payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
+    delivery_note = (product["delivery_text"] or "").strip() if product else ""
+    extra         = f"\n\n📨 <b>Инструкция по активации:</b>\n{delivery_note}" if delivery_note else ""
+
+    if not payloads:
+        text = (
+            "⏳ Оплата получена, спасибо!\n\n"
+            "Товар временно закончился — администратор свяжется с вами в ближайшее время."
+            f"{extra}\n\n{SHOP_FOOTER}"
+        )
+    else:
+        items = "\n\n".join(f"{i + 1}) <code>{v}</code>" for i, v in enumerate(payloads))
+        text  = (
+            "✅ <b>Оплата подтверждена автоматически!</b>\n\n"
+            f"Ваш товар:\n\n{items}"
+            f"{extra}\n\n{SHOP_FOOTER}"
+        )
+
+    try:
+        await bot.send_message(
+            int(order["tg_user_id"]),
+            text,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        logger.exception("Failed to send fulfillment message to user %s", order["tg_user_id"])
+
+
+async def _payment_checker(bot: Bot) -> None:
+    """Фоновая задача: периодически проверяет статус оплаты CryptoBot инвойсов."""
+    if not settings.cryptobot_api_token:
+        logger.info("CRYPTOBOT_API_TOKEN not set — auto-check disabled")
+        return
+
+    interval = settings.payment_check_interval
+    logger.info("Payment checker started (interval=%ds)", interval)
+
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            cancel_expired_orders()
+
+            pending = get_pending_crypto_orders()
+            if not pending:
+                continue
+
+            for order in pending:
+                invoice_id = int(order["invoice_id"])
+                try:
+                    status = await check_invoice_status(
+                        settings.cryptobot_api_token, invoice_id
+                    )
+                except Exception:
+                    logger.exception("Error checking invoice %d", invoice_id)
+                    continue
+
+                if status == "paid":
+                    logger.info(
+                        "Invoice %d paid — fulfilling order %s",
+                        invoice_id,
+                        order["order_code"],
+                    )
+                    await _fulfill_order(bot, order["order_code"])
+        except Exception:
+            logger.exception("Payment checker iteration error")
+
+
 # ─── Команды бота (меню) ─────────────────────────────────────────────────────
 
 async def setup_commands(bot: Bot) -> None:
@@ -323,6 +410,8 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="buttons",     description="Список всех кнопок"),
         BotCommand(command="resetbutton", description="Вернуть кнопку к стандарту"),
         BotCommand(command="resetallbuttons", description="Вернуть все кнопки"),
+        BotCommand(command="setcategory", description="Переименовать категорию"),
+        BotCommand(command="setsubcategory", description="Переименовать подкатегорию"),
     ]
     for admin_id in settings.admin_ids:
         try:
@@ -651,21 +740,60 @@ async def cb_pay(callback: CallbackQuery) -> None:
     extra_pct = settings.cryptobot_invoice_add_percent
 
     if method in ("crypto_usdt", "crypto_ton"):
-        asset    = "USDT" if method == "crypto_usdt" else "TON"
+        asset = "USDT" if method == "crypto_usdt" else "TON"
+        total_usd = round(float(order["total_usd"]) * (1 + extra_pct / 100), 2)
+
+        set_order_payment_method(code, method)
+
+        if settings.cryptobot_api_token:
+            try:
+                invoice = await create_invoice(
+                    token=settings.cryptobot_api_token,
+                    asset=asset,
+                    amount=total_usd,
+                    description=f"Заказ {code}: {product['title']} x{order['qty']}",
+                    expires_in=900,
+                )
+                set_order_invoice_id(code, invoice.invoice_id)
+                pay_link = invoice.bot_invoice_url
+
+                text = (
+                    "💳 <b>Оплата через CryptoBot</b>\n"
+                    "➖➖➖➖➖➖➖➖➖\n"
+                    f"📦 Товар: {product['title']}\n"
+                    f"🔢 Кол-во: {order['qty']} шт.\n"
+                    f"💵 Сумма: {fmt(total_usd)} $ (+{extra_pct}% комиссия)\n"
+                    f"🔖 Код заказа: <code>{order['order_code']}</code>\n"
+                    "➖➖➖➖➖➖➖➖➖\n"
+                    f"Перейдите для оплаты:\n{pay_link}\n\n"
+                    "⏰ Время на оплату: 15 минут\n"
+                    "🔄 Оплата будет подтверждена автоматически."
+                )
+                kb = InlineKeyboardBuilder()
+                kb.button(text="💳 Оплатить", url=pay_link)
+                kb.button(text="🔄 Проверить оплату", callback_data=f"check:{code}")
+                kb.adjust(1)
+                await safe_edit(callback, text, kb.as_markup())
+                await callback.answer()
+                return
+            except Exception:
+                logger.exception("Failed to create CryptoBot invoice for order %s", code)
+
         pay_link = f"https://t.me/CryptoBot?start=invoice-{code}-{asset}"
-        total    = round(float(order["total_rub"]) * (1 + extra_pct / 100), 2)
+        total_rub = round(float(order["total_rub"]) * (1 + extra_pct / 100), 2)
         text = (
             "💳 <b>Оплата через CryptoBot</b>\n"
             "➖➖➖➖➖➖➖➖➖\n"
             f"📦 Товар: {product['title']}\n"
             f"🔢 Кол-во: {order['qty']} шт.\n"
-            f"💵 Сумма: {fmt(total)} ₽ (+{extra_pct}% комиссия)\n"
+            f"💵 Сумма: {fmt(total_rub)} ₽ (+{extra_pct}% комиссия)\n"
             f"🔖 Код заказа: <code>{order['order_code']}</code>\n"
             "➖➖➖➖➖➖➖➖➖\n"
             f"Перейдите для оплаты:\n{pay_link}\n\n"
             "⏰ Время на оплату: 15 минут"
         )
     else:
+        set_order_payment_method(code, "bybit")
         text = (
             "🔶 <b>Оплата через Bybit</b>\n"
             "➖➖➖➖➖➖➖➖➖\n"
@@ -684,19 +812,64 @@ async def cb_pay(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("paid:"))
-async def cb_paid(callback: CallbackQuery) -> None:
-    code  = callback.data.split(":")[1]
-    order = mark_order_paid(code)
+@router.callback_query(F.data.startswith("check:"))
+async def cb_check_payment(callback: CallbackQuery) -> None:
+    code = callback.data.split(":")[1]
+    order = get_order(code)
 
     if not order:
         await callback.answer("Заказ не найден", show_alert=True)
         return
 
+    if order["payment_status"] == "paid":
+        await callback.answer("Заказ уже оплачен!", show_alert=True)
+        return
+
+    if not settings.cryptobot_api_token or order["invoice_id"] == 0:
+        await callback.answer("Автоматическая проверка недоступна", show_alert=True)
+        return
+
+    try:
+        status = await check_invoice_status(
+            settings.cryptobot_api_token, int(order["invoice_id"])
+        )
+    except Exception:
+        logger.exception("Failed to check invoice %s", order["invoice_id"])
+        await callback.answer("Ошибка проверки. Попробуйте позже.", show_alert=True)
+        return
+
+    if status == "paid":
+        bot_instance = callback.bot
+        await _fulfill_order(bot_instance, code)
+        await callback.answer("Оплата подтверждена! 🎉", show_alert=True)
+    elif status == "expired":
+        await callback.answer(
+            "Инвойс истёк. Создайте новый заказ.", show_alert=True
+        )
+    else:
+        await callback.answer(
+            "Оплата ещё не получена. Попробуйте позже.", show_alert=True
+        )
+
+
+@router.callback_query(F.data.startswith("paid:"))
+async def cb_paid(callback: CallbackQuery) -> None:
+    code  = callback.data.split(":")[1]
+    order = get_order(code)
+
+    if not order:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
+
+    if order["payment_status"] == "paid":
+        await callback.answer("Заказ уже оплачен!", show_alert=True)
+        return
+
+    mark_order_paid(code)
     await notify_admin_about_payment(code)
 
-    payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
     product       = get_product(int(order["product_id"]))
+    payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
     delivery_note = (product["delivery_text"] or "").strip() if product else ""
     extra         = f"\n\n📨 <b>Инструкция по активации:</b>\n{delivery_note}" if delivery_note else ""
 
@@ -1107,6 +1280,55 @@ async def cmd_resetallbuttons(message: Message) -> None:
     await message.answer("✅ Все кнопки вернены к стандартам")
 
 
+# ─── Переименование категорий / подкатегорий ──────────────────────────────
+
+@router.message(Command("setcategory"))
+async def cmd_setcategory(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setcategory", "", 1).strip()
+    if "|" not in rest:
+        cats = list_categories()
+        lines = ["Формат: /setcategory <id> | <новое название>\n\n📂 Текущие категории:"]
+        for cat in cats:
+            lines.append(f"  <code>{cat['id']}</code> — {cat['name']}")
+        await message.answer("\n".join(lines))
+        return
+    cid_s, new_name = [x.strip() for x in rest.split("|", 1)]
+    try:
+        cid = int(cid_s)
+    except ValueError:
+        await message.answer("ID категории должен быть числом.")
+        return
+    ok = rename_category(cid, new_name)
+    await message.answer(f"✅ Категория переименована в <b>{new_name}</b>" if ok else "❌ Категория не найдена.")
+
+
+@router.message(Command("setsubcategory"))
+async def cmd_setsubcategory(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setsubcategory", "", 1).strip()
+    if "|" not in rest:
+        cats = list_categories()
+        lines = ["Формат: /setsubcategory <id> | <новое название>\n\n📂 Текущие подкатегории:"]
+        for cat in cats:
+            subs = list_subcategories(cat["id"])
+            lines.append(f"\n<b>{cat['name']}</b>:")
+            for sub in subs:
+                lines.append(f"  <code>{sub['id']}</code> — {sub['name']}")
+        await message.answer("\n".join(lines))
+        return
+    sid_s, new_name = [x.strip() for x in rest.split("|", 1)]
+    try:
+        sid = int(sid_s)
+    except ValueError:
+        await message.answer("ID подкатегории должен быть числом.")
+        return
+    ok = rename_subcategory(sid, new_name)
+    await message.answer(f"✅ Подкатегория переименована в <b>{new_name}</b>" if ok else "❌ Подкатегория не найдена.")
+
+
 # ─── Рассылка ──────────────────────────────────────────────────────────
 
 @router.message(Command("broadcast"))
@@ -1175,6 +1397,10 @@ async def cmd_admin(message: Message) -> None:
         "<b>/resetbutton</b> <code>button_id</code> — вернуть кнопку.\n"
         "<b>/resetallbuttons</b> — вернуть все кнопки.\n\n"
 
+        "📂 <b>Категории</b>\n"
+        "<b>/setcategory</b> <code>ID | новое название</code> — переименовать категорию.\n"
+        "<b>/setsubcategory</b> <code>ID | новое название</code> — переименовать подкатегорию.\n\n"
+
         "📋 <b>Прочее</b>\n"
         "<b>/order</b> <code>код</code> — информация о заказе.\n"
         "<b>/broadcast</b> — рассылка всем покупателям.\n\n"
@@ -1189,12 +1415,16 @@ async def cmd_admin(message: Message) -> None:
 # ─── Запуск ────────────────────────────────────────────────────────────
 
 async def run() -> None:
+    logging.basicConfig(level=logging.INFO)
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     await bot.delete_webhook(drop_pending_updates=True)
     await setup_commands(bot)
+
+    asyncio.create_task(_payment_checker(bot))
+
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     await dp.start_polling(bot)
