@@ -25,6 +25,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
 from app.db import (
+    add_balance,
     add_custom_product,
     add_product_payload,
     adjust_stock,
@@ -34,6 +35,7 @@ from app.db import (
     get_order,
     get_product,
     get_subcategory,
+    get_user_balance,
     get_visual,
     init_db,
     list_categories,
@@ -43,11 +45,13 @@ from app.db import (
     mark_order_paid,
     pop_payloads,
     replace_product_payloads,
+    set_balance,
     set_visual,
     update_product_content,
+    withdraw_balance,
 )
 
-# ─── Инициализация ────────────────────────────────────────────────────────────
+# ─── Инициализация ────────────────────────────────────────────────────────
 
 router = Router()
 settings = load_settings()
@@ -89,18 +93,20 @@ SERVICE_IMAGE_MAP = {
 }
 
 
-# ─── FSM-состояния ────────────────────────────────────────────────────────────
+# ─── FSM-состояния ─────────────────────────────────────────────────────────
 
 class BuyFlow(StatesGroup):
     choose_qty = State()
+    choose_payment_method = State()
 
 
 class AdminFlow(StatesGroup):
     add_product_wait = State()
     broadcast_wait   = State()
+    set_balance_wait = State()
 
 
-# ─── Вспомогательные функции ──────────────────────────────────────────────────
+# ─── Вспомогательные функции ─────────────────────────────────────────────────
 
 def fmt(v: float) -> str:
     """Форматирует число: убирает лишние нули, меняет точку на запятую."""
@@ -133,7 +139,7 @@ def normalize_link(value: str, fallback: str) -> str:
     return fallback
 
 
-# ─── Клавиатуры ───────────────────────────────────────────────────────────────
+# ─── Клавиатуры ──────────────────────────────────────────────────────────
 
 def main_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
@@ -208,6 +214,16 @@ def pay_kb(order_code: str) -> InlineKeyboardMarkup:
     kb.button(text="💰 CryptoBot USDT", callback_data=f"pay:crypto_usdt:{order_code}")
     kb.button(text="💎 CryptoBot TON",  callback_data=f"pay:crypto_ton:{order_code}")
     kb.button(text="🔶 Bybit",          callback_data=f"pay:bybit:{order_code}")
+    kb.button(text="💳 Баланс",         callback_data=f"pay:balance:{order_code}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def balance_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="➕ Пополнить баланс", callback_data="balance:topup")
+    kb.button(text="📊 История",         callback_data="balance:history")
+    kb.button(text="◀️ Назад",           callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -244,7 +260,7 @@ async def safe_edit(callback: CallbackQuery, text: str, kb: InlineKeyboardMarkup
             await msg.answer(text, reply_markup=kb)
 
 
-# ─── Уведомления ──────────────────────────────────────────────────────────────
+# ─── Уведомления ─────────────────────────────────────────────────────────
 
 async def notify_admin_about_payment(order_code: str) -> None:
     """Если настроен второй бот-нотификатор — шлёт ему уведомление об оплате."""
@@ -272,7 +288,7 @@ async def notify_admin_about_payment(order_code: str) -> None:
         pass
 
 
-# ─── Команды бота (меню) ──────────────────────────────────────────────────────
+# ─── Команды бота (меню) ─────────────────────────────────────────────────────
 
 async def setup_commands(bot: Bot) -> None:
     # Для всех пользователей — только /start
@@ -295,6 +311,7 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="getfileid",   description="Получить file_id фото"),
         BotCommand(command="order",       description="Проверить заказ по коду"),
         BotCommand(command="broadcast",   description="Рассылка всем покупателям"),
+        BotCommand(command="setbalance",  description="Установить баланс пользователю"),
     ]
     for admin_id in settings.admin_ids:
         try:
@@ -306,7 +323,7 @@ async def setup_commands(bot: Bot) -> None:
             pass
 
 
-# ─── /start ───────────────────────────────────────────────────────────────────
+# ─── /start ──────────────────────────────────────────────────────────────
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
@@ -319,7 +336,7 @@ async def cmd_start(message: Message) -> None:
     await send_with_photo(message, text, main_kb(), get_image("start"))
 
 
-# ─── Навигация главного меню ──────────────────────────────────────────────────
+# ─── Навигация главного меню ──────────────────────────────────────────────
 
 @router.callback_query(F.data == "go:main")
 async def cb_go_main(callback: CallbackQuery) -> None:
@@ -346,12 +363,52 @@ async def cb_go_cats(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:balance")
 async def cb_balance(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
+    balance_usd, balance_rub = get_user_balance(uid)
     text = (
-        "💳 <b>Баланс</b>\n\n"
-        "Функция пополнения баланса пока в разработке.\n"
-        "Сейчас оплата производится при каждом заказе отдельно."
+        "💳 <b>Ваш баланс</b>\n"
+        f"💰 {fmt(balance_usd)} $ / {fmt(balance_rub)} ₽\n\n"
+        "Используйте баланс для быстрых покупок без повторной оплаты."
     )
-    await safe_edit(callback, text, main_kb())
+    await safe_edit(callback, text, balance_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "balance:topup")
+async def cb_balance_topup(callback: CallbackQuery) -> None:
+    text = (
+        "💳 <b>Пополнение баланса</b>\n\n"
+        "Свяжитесь с администратором для пополнения баланса:\n"
+        "@Dolzu\n\n"
+        "Укажите желаемую сумму."
+    )
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💬 Написать админу", url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
+    kb.button(text="◀️ Назад", callback_data="menu:balance")
+    kb.adjust(1)
+    await safe_edit(callback, text, kb.as_markup())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "balance:history")
+async def cb_balance_history(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT total_usd, total_rub, payment_status, created_ts FROM orders WHERE tg_user_id = ? ORDER BY created_ts DESC LIMIT 10",
+            (uid,),
+        ).fetchall()
+    if not rows:
+        text = "📜 <b>История заказов</b>\n\nНет заказов."
+    else:
+        lines = ["📜 <b>Последние 10 заказов:</b>\n"]
+        for row in rows:
+            status = "✅ Оплачено" if row["payment_status"] == "paid" else "⏳ Ожидание"
+            lines.append(f"{fmt(row['total_usd'])}$ — {status}")
+        text = "\n".join(lines)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="◀️ Назад", callback_data="menu:balance")
+    await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
 
 
@@ -384,6 +441,7 @@ async def cb_profile(callback: CallbackQuery) -> None:
 
     orders_count = int(row["cnt"])   if row and row["cnt"]   else 0
     total_spent  = float(row["total"]) if row and row["total"] else 0.0
+    balance_usd, balance_rub = get_user_balance(uid)
 
     text = (
         "👤 <b>Ваш профиль</b>\n\n"
@@ -391,7 +449,8 @@ async def cb_profile(callback: CallbackQuery) -> None:
         f"👤 Имя: {full_name}\n"
         f"📧 Username: {'@' + username if username else 'не указан'}\n\n"
         f"🛍️ Заказов выполнено: <b>{orders_count}</b>\n"
-        f"💰 Потрачено: <b>${fmt(total_spent)}</b>"
+        f"💰 Потрачено: <b>${fmt(total_spent)}</b>\n"
+        f"💳 На балансе: <b>${fmt(balance_usd)}</b> / <b>{fmt(balance_rub)}₽</b>"
     )
     kb = InlineKeyboardBuilder()
     kb.button(text="◀️ Назад", callback_data="go:main")
@@ -399,7 +458,7 @@ async def cb_profile(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ─── Каталог ──────────────────────────────────────────────────────────────────
+# ─── Каталог ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("cat:"))
 async def cb_category(callback: CallbackQuery) -> None:
@@ -458,7 +517,7 @@ async def cb_product(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ─── Покупка ──────────────────────────────────────────────────────────────────
+# ─── Покупка ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
@@ -534,6 +593,50 @@ async def cb_pay(callback: CallbackQuery) -> None:
         await callback.answer("Заказ не найден", show_alert=True)
         return
 
+    if method == "balance":
+        uid = callback.from_user.id
+        balance_usd, balance_rub = get_user_balance(uid)
+        total_usd = float(order["total_usd"])
+        total_rub = float(order["total_rub"])
+        
+        if balance_usd < total_usd:
+            await callback.answer(
+                f"Недостаточно средств на балансе.\n"
+                f"Требуется: ${fmt(total_usd)}, у вас: ${fmt(balance_usd)}",
+                show_alert=True
+            )
+            return
+        
+        if not withdraw_balance(uid, total_usd, total_rub):
+            await callback.answer("Ошибка при снятии средств с баланса", show_alert=True)
+            return
+        
+        from app.db import mark_order_paid
+        mark_order_paid(code)
+        await notify_admin_about_payment(code)
+        
+        payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
+        delivery_note = (product["delivery_text"] or "").strip() if product else ""
+        extra         = f"\n\n📨 <b>Инструкция по активации:</b>\n{delivery_note}" if delivery_note else ""
+        
+        if not payloads:
+            text = (
+                "⏳ Оплата получена, спасибо!\n\n"
+                "Товар временно закончился — администратор свяжется с вами в ближайшее время."
+                f"{extra}\n\n{SHOP_FOOTER}"
+            )
+        else:
+            items = "\n\n".join(f"{i + 1}) <code>{v}</code>" for i, v in enumerate(payloads))
+            text  = (
+                "✅ <b>Оплата подтверждена!</b>\n\n"
+                f"Ваш товар:\n\n{items}"
+                f"{extra}\n\n{SHOP_FOOTER}"
+            )
+        
+        await safe_edit(callback, text, InlineKeyboardBuilder().as_markup())
+        await callback.answer("Спасибо за покупку! 🎉")
+        return
+
     extra_pct = settings.cryptobot_invoice_add_percent
 
     if method in ("crypto_usdt", "crypto_ton"):
@@ -604,7 +707,7 @@ async def cb_paid(callback: CallbackQuery) -> None:
     await callback.answer("Спасибо за покупку! 🎉")
 
 
-# ─── Получение file_id фото ───────────────────────────────────────────────────
+# ─── Получение file_id фото ─────────────────────────────────────────────────
 
 @router.message(Command("getfileid"))
 async def cmd_getfileid(message: Message) -> None:
@@ -628,7 +731,7 @@ async def handle_photo(message: Message) -> None:
     )
 
 
-# ─── Картинки ─────────────────────────────────────────────────────────────────
+# ─── Картинки ─────────────────────────────────────────────────────────────
 
 @router.message(Command("setimage"))
 async def cmd_setimage(message: Message) -> None:
@@ -658,7 +761,7 @@ async def cmd_images(message: Message) -> None:
     await message.answer("🖼 <b>Картинки:</b>\n" + "\n".join(lines))
 
 
-# ─── Управление товарами ──────────────────────────────────────────────────────
+# ─── Управление товарами ──────────────────────────────────────────────────
 
 @router.message(Command("additem"))
 async def cmd_additem(message: Message, state: FSMContext) -> None:
@@ -806,7 +909,7 @@ async def cmd_setdelivery(message: Message) -> None:
     await message.answer("✅ Инструкция по выдаче обновлена." if ok else "❌ Товар не найден.")
 
 
-# ─── Заказы ───────────────────────────────────────────────────────────────────
+# ─── Заказы ────────────────────────────────────────────────────────────
 
 @router.message(Command("order"))
 async def cmd_order(message: Message) -> None:
@@ -833,7 +936,42 @@ async def cmd_order(message: Message) -> None:
     )
 
 
-# ─── Рассылка ─────────────────────────────────────────────────────────────────
+# ─── Управление балансом ──────────────────────────────────────────────────
+
+@router.message(Command("setbalance"))
+async def cmd_setbalance(message: Message, state: FSMContext) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    await state.set_state(AdminFlow.set_balance_wait)
+    await message.answer(
+        "💳 Установить баланс пользователю\n\n"
+        "Формат: <code>user_id | сумма_usd</code>\n\n"
+        "Пример: <code>123456789 | 50.50</code>"
+    )
+
+
+@router.message(AdminFlow.set_balance_wait)
+async def state_set_balance(message: Message, state: FSMContext) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    parts = [p.strip() for p in (message.text or "").split("|")]
+    if len(parts) != 2:
+        await message.answer("Неверный формат. Нужно: user_id | сумма_usd")
+        return
+    try:
+        uid = int(parts[0])
+        amount_usd = float(parts[1].replace(",", "."))
+    except ValueError:
+        await message.answer("user_id должен быть числом, сумма — числом.")
+        return
+    
+    amount_rub = round(amount_usd * settings.rub_per_usd, 2)
+    set_balance(uid, amount_usd, amount_rub)
+    await state.clear()
+    await message.answer(f"✅ Баланс установлен.\n👤 User: {uid}\n💰 Баланс: ${fmt(amount_usd)} / {fmt(amount_rub)}₽")
+
+
+# ─── Рассылка ──────────────────────────────────────────────────────────
 
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext) -> None:
@@ -861,7 +999,7 @@ async def state_broadcast(message: Message, state: FSMContext, bot: Bot) -> None
     await message.answer(f"📢 Рассылка завершена.\nДоставлено: {sent} из {len(user_ids)}")
 
 
-# ─── Админ-панель ─────────────────────────────────────────────────────────────
+# ─── Админ-панель ─────────────────────────────────────────────────────────
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message) -> None:
@@ -889,6 +1027,9 @@ async def cmd_admin(message: Message) -> None:
         "<b>/setimage</b> <code>ключ file_id</code> — установить картинку.\n"
         "<b>/images</b> — статус всех картинок.\n\n"
 
+        "💳 <b>Баланс</b>\n"
+        "<b>/setbalance</b> — установить баланс пользователю.\n\n"
+
         "📋 <b>Прочее</b>\n"
         "<b>/order</b> <code>код</code> — информация о заказе.\n"
         "<b>/broadcast</b> — рассылка всем покупателям.\n\n"
@@ -900,7 +1041,7 @@ async def cmd_admin(message: Message) -> None:
     await message.answer(text)
 
 
-# ─── Запуск ───────────────────────────────────────────────────────────────────
+# ─── Запуск ────────────────────────────────────────────────────────────
 
 async def run() -> None:
     bot = Bot(
