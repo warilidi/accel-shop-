@@ -135,6 +135,10 @@ def init_db() -> None:
         )
     except sqlite3.OperationalError:
         pass
+    try:
+        cur.execute("ALTER TABLE orders ADD COLUMN invoice_id INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
 
@@ -593,3 +597,62 @@ def reset_all_buttons() -> bool:
         conn.execute("DELETE FROM button_texts")
         conn.commit()
         return True
+
+
+# ─── Invoice / auto-payment helpers ──────────────────────────────────────
+
+
+def set_order_invoice_id(order_code: str, invoice_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE orders SET invoice_id = ? WHERE order_code = ?",
+            (invoice_id, order_code),
+        )
+        conn.commit()
+
+
+def set_order_payment_method(order_code: str, method: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE orders SET payment_method = ? WHERE order_code = ?",
+            (method, order_code),
+        )
+        conn.commit()
+
+
+def get_pending_crypto_orders() -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM orders
+            WHERE payment_status = 'pending'
+              AND invoice_id > 0
+              AND payment_method IN ('crypto_usdt', 'crypto_ton')
+            ORDER BY created_ts
+            """,
+        ).fetchall()
+
+
+def cancel_expired_orders() -> list[sqlite3.Row]:
+    import time
+    now = int(time.time())
+    with get_conn() as conn:
+        expired = conn.execute(
+            """
+            SELECT * FROM orders
+            WHERE payment_status = 'pending'
+              AND payment_deadline_ts < ?
+            """,
+            (now,),
+        ).fetchall()
+        if expired:
+            conn.execute(
+                """
+                UPDATE orders SET payment_status = 'expired'
+                WHERE payment_status = 'pending'
+                  AND payment_deadline_ts < ?
+                """,
+                (now,),
+            )
+            conn.commit()
+        return expired

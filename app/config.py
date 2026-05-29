@@ -19,6 +19,8 @@ class Settings:
     cryptobot_invoice_add_percent: int
     notify_bot_token: str
     notify_chat_id: int | None
+    cryptobot_api_token: str
+    payment_check_interval: int
 
 
 def _parse_admin_ids(raw: str) -> set[int]:
@@ -52,4 +54,6 @@ def load_settings() -> Settings:
         cryptobot_invoice_add_percent=int(os.getenv("CRYPTOBOT_INVOICE_ADD_PERCENT", "3")),
         notify_bot_token=os.getenv("NOTIFY_BOT_TOKEN", "").strip(),
         notify_chat_id=notify_chat_id,
+        cryptobot_api_token=os.getenv("CRYPTOBOT_API_TOKEN", "").strip(),
+        payment_check_interval=int(os.getenv("PAYMENT_CHECK_INTERVAL", "30")),
     )
