@@ -94,6 +94,14 @@ def init_db() -> None:
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS button_texts (
+            button_id TEXT PRIMARY KEY,
+            text TEXT NOT NULL
+        )
+        """
+    )
     # Lightweight migration for existing databases.
     try:
         cur.execute("ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT ''")
@@ -111,6 +119,17 @@ def init_db() -> None:
                 balance_usd REAL NOT NULL DEFAULT 0,
                 balance_rub REAL NOT NULL DEFAULT 0,
                 updated_ts INTEGER NOT NULL
+            )
+            """
+        )
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS button_texts (
+                button_id TEXT PRIMARY KEY,
+                text TEXT NOT NULL
             )
             """
         )
@@ -494,5 +513,83 @@ def set_balance(tg_user_id: int, amount_usd: float, amount_rub: float) -> bool:
             """,
             (tg_user_id, amount_usd, amount_rub, int(time.time()), amount_usd, amount_rub, int(time.time())),
         )
+        conn.commit()
+        return True
+
+
+# ─── Button texts functions ─────────────────────────────────────────────────
+
+# Default button texts
+DEFAULT_BUTTON_TEXTS = {
+    "catalog": "🛍️ Товары и услуги",
+    "balance": "💳 Баланс",
+    "wholesale": "💎 Опт",
+    "help": "🛟 Помощь",
+    "profile": "👤 Профиль",
+    "rules": "📜 Правила",
+    "crypto_usdt": "💰 CryptoBot USDT",
+    "crypto_ton": "💎 CryptoBot TON",
+    "bybit": "🔶 Bybit",
+    "balance_pay": "💳 Баланс",
+    "topup": "➕ Пополнить баланс",
+    "history": "📊 История",
+    "back": "◀️ Назад",
+    "buy": "🛒 Купить",
+    "confirm_paid": "✅ Я оплатил",
+    "agree": "📄 Пользовательское соглашение",
+    "privacy": "🔒 Политика конфиденциальности",
+}
+
+
+def get_button_text(button_id: str) -> str:
+    """Get button text from DB or use default."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT text FROM button_texts WHERE button_id = ?",
+            (button_id,),
+        ).fetchone()
+        if row:
+            return row["text"]
+    return DEFAULT_BUTTON_TEXTS.get(button_id, button_id)
+
+
+def set_button_text(button_id: str, text: str) -> bool:
+    """Set button text in DB."""
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO button_texts(button_id, text)
+            VALUES(?, ?)
+            ON CONFLICT(button_id) DO UPDATE SET text = excluded.text
+            """,
+            (button_id, text.strip()),
+        )
+        conn.commit()
+        return True
+
+
+def list_all_buttons() -> dict[str, str]:
+    """Get all available button IDs with their current texts."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT button_id, text FROM button_texts").fetchall()
+        custom = {r["button_id"]: r["text"] for r in rows}
+    
+    result = DEFAULT_BUTTON_TEXTS.copy()
+    result.update(custom)
+    return result
+
+
+def reset_button_text(button_id: str) -> bool:
+    """Reset button text to default."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM button_texts WHERE button_id = ?", (button_id,))
+        conn.commit()
+        return True
+
+
+def reset_all_buttons() -> bool:
+    """Reset all button texts to defaults."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM button_texts")
         conn.commit()
         return True
