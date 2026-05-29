@@ -382,6 +382,15 @@ def create_order(
         return int(cur.lastrowid)
 
 
+def set_order_status(order_code: str, status: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE orders SET payment_status = ? WHERE order_code = ?",
+            (status, order_code),
+        )
+        conn.commit()
+
+
 def mark_order_paid(order_code: str) -> sqlite3.Row | None:
     with get_conn() as conn:
         conn.execute("UPDATE orders SET payment_status = 'paid' WHERE order_code = ?", (order_code,))
