@@ -213,6 +213,24 @@ async def send_message_with_optional_photo(
         await message.answer(text, reply_markup=reply_markup)
 
 
+async def safe_edit(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup) -> None:
+    msg = callback.message
+    if msg.photo or msg.document or msg.video:
+        try:
+            await msg.edit_caption(caption=text, reply_markup=reply_markup)
+        except Exception:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            await msg.answer(text, reply_markup=reply_markup)
+    else:
+        try:
+            await msg.edit_text(text, reply_markup=reply_markup)
+        except Exception:
+            await msg.answer(text, reply_markup=reply_markup)
+
+
 async def send_paid_notify_to_admin(order_code: str) -> None:
     if not settings.notify_bot_token or settings.notify_chat_id is None:
         return
@@ -285,7 +303,7 @@ async def cmd_start(message: Message) -> None:
 
 @router.callback_query(F.data == "go:main")
 async def cb_main(callback: CallbackQuery) -> None:
-    await callback.message.edit_text("🏠 Главное меню:", reply_markup=main_kb())
+    await safe_edit(callback, "🏠 Главное меню:", main_kb())
     await callback.answer()
 
 
@@ -302,17 +320,13 @@ async def cb_catalog(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "go:cats")
 async def cb_go_cats(callback: CallbackQuery) -> None:
-    await callback.message.edit_text("📂 Выберите раздел:", reply_markup=categories_kb())
+    await safe_edit(callback, "📂 Выберите раздел:", categories_kb())
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:balance")
 async def cb_balance(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        "💳 Баланс пока в разработке.\n"
-        "Сейчас можно оплачивать каждый заказ отдельно через CryptoBot / Bybit.",
-        reply_markup=main_kb(),
-    )
+    await safe_edit(callback, "💳 Баланс пока в разработке.\nСейчас можно оплачивать каждый заказ отдельно через CryptoBot / Bybit.", main_kb())
     await callback.answer()
 
 
@@ -361,17 +375,14 @@ async def cb_profile(callback: CallbackQuery) -> None:
     )
     kb = InlineKeyboardBuilder()
     kb.button(text="◀️ Назад", callback_data="go:main")
-    await callback.message.edit_text(text, reply_markup=kb.as_markup())
+    await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("cat:"))
 async def cb_category(callback: CallbackQuery) -> None:
     category_id = int(callback.data.split(":")[1])
-    await callback.message.edit_text(
-        "🧠 Выберите сервис:",
-        reply_markup=subcategories_kb(category_id),
-    )
+    await safe_edit(callback, "🧠 Выберите сервис:", subcategories_kb(category_id))
     await callback.answer()
 
 
@@ -385,7 +396,7 @@ async def cb_subcategory(callback: CallbackQuery) -> None:
     if service_image:
         await callback.message.answer_photo(photo=service_image, caption=text, reply_markup=products_kb(sub_id))
     else:
-        await callback.message.edit_text(text, reply_markup=products_kb(sub_id))
+        await safe_edit(callback, text, products_kb(sub_id))
     await callback.answer()
 
 
@@ -921,3 +932,4 @@ async def run_bot() -> None:
 if __name__ == "__main__":
     init_db()
     asyncio.run(run_bot())
+    
