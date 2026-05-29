@@ -182,6 +182,26 @@ def list_categories() -> list[sqlite3.Row]:
         return conn.execute("SELECT id, name FROM categories ORDER BY id").fetchall()
 
 
+def rename_category(category_id: int, new_name: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute("UPDATE categories SET name = ? WHERE id = ?", (new_name.strip(), category_id))
+        conn.commit()
+        return True
+
+
+def rename_subcategory(subcategory_id: int, new_name: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM subcategories WHERE id = ?", (subcategory_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute("UPDATE subcategories SET name = ? WHERE id = ?", (new_name.strip(), subcategory_id))
+        conn.commit()
+        return True
+
+
 def list_subcategories(category_id: int) -> list[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute(

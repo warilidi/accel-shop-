@@ -50,6 +50,8 @@ from app.db import (
     list_visuals,
     mark_order_paid,
     pop_payloads,
+    rename_category,
+    rename_subcategory,
     replace_product_payloads,
     reset_all_buttons,
     reset_button_text,
@@ -408,6 +410,8 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="buttons",     description="Список всех кнопок"),
         BotCommand(command="resetbutton", description="Вернуть кнопку к стандарту"),
         BotCommand(command="resetallbuttons", description="Вернуть все кнопки"),
+        BotCommand(command="setcategory", description="Переименовать категорию"),
+        BotCommand(command="setsubcategory", description="Переименовать подкатегорию"),
     ]
     for admin_id in settings.admin_ids:
         try:
@@ -1276,6 +1280,55 @@ async def cmd_resetallbuttons(message: Message) -> None:
     await message.answer("✅ Все кнопки вернены к стандартам")
 
 
+# ─── Переименование категорий / подкатегорий ──────────────────────────────
+
+@router.message(Command("setcategory"))
+async def cmd_setcategory(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setcategory", "", 1).strip()
+    if "|" not in rest:
+        cats = list_categories()
+        lines = ["Формат: /setcategory <id> | <новое название>\n\n📂 Текущие категории:"]
+        for cat in cats:
+            lines.append(f"  <code>{cat['id']}</code> — {cat['name']}")
+        await message.answer("\n".join(lines))
+        return
+    cid_s, new_name = [x.strip() for x in rest.split("|", 1)]
+    try:
+        cid = int(cid_s)
+    except ValueError:
+        await message.answer("ID категории должен быть числом.")
+        return
+    ok = rename_category(cid, new_name)
+    await message.answer(f"✅ Категория переименована в <b>{new_name}</b>" if ok else "❌ Категория не найдена.")
+
+
+@router.message(Command("setsubcategory"))
+async def cmd_setsubcategory(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    rest = (message.text or "").replace("/setsubcategory", "", 1).strip()
+    if "|" not in rest:
+        cats = list_categories()
+        lines = ["Формат: /setsubcategory <id> | <новое название>\n\n📂 Текущие подкатегории:"]
+        for cat in cats:
+            subs = list_subcategories(cat["id"])
+            lines.append(f"\n<b>{cat['name']}</b>:")
+            for sub in subs:
+                lines.append(f"  <code>{sub['id']}</code> — {sub['name']}")
+        await message.answer("\n".join(lines))
+        return
+    sid_s, new_name = [x.strip() for x in rest.split("|", 1)]
+    try:
+        sid = int(sid_s)
+    except ValueError:
+        await message.answer("ID подкатегории должен быть числом.")
+        return
+    ok = rename_subcategory(sid, new_name)
+    await message.answer(f"✅ Подкатегория переименована в <b>{new_name}</b>" if ok else "❌ Подкатегория не найдена.")
+
+
 # ─── Рассылка ──────────────────────────────────────────────────────────
 
 @router.message(Command("broadcast"))
@@ -1343,6 +1396,10 @@ async def cmd_admin(message: Message) -> None:
         "<b>/buttons</b> — список всех кнопок.\n"
         "<b>/resetbutton</b> <code>button_id</code> — вернуть кнопку.\n"
         "<b>/resetallbuttons</b> — вернуть все кнопки.\n\n"
+
+        "📂 <b>Категории</b>\n"
+        "<b>/setcategory</b> <code>ID | новое название</code> — переименовать категорию.\n"
+        "<b>/setsubcategory</b> <code>ID | новое название</code> — переименовать подкатегорию.\n\n"
 
         "📋 <b>Прочее</b>\n"
         "<b>/order</b> <code>код</code> — информация о заказе.\n"
