@@ -63,11 +63,12 @@ from app.db import (
     set_visual,
     update_product_content,
     withdraw_balance,
+    log_admin_action,
 )
 
 logger = logging.getLogger(__name__)
 
-# ─── Инициализация ────────────────────────────────────────────────────────
+# ─── Инициализация ────────────────────────────────────────────────────────────
 
 router = Router()
 settings = load_settings()
@@ -109,7 +110,7 @@ SERVICE_IMAGE_MAP = {
 }
 
 
-# ─── FSM-состояния ─────────────────────────────────────────────────────────
+# ─── FSM-состояния ────────────────────────────────────────────────────────────
 
 class BuyFlow(StatesGroup):
     choose_qty = State()
@@ -123,7 +124,7 @@ class AdminFlow(StatesGroup):
     edit_product_wait = State()
 
 
-# ─── Вспомогательные функции ─────────────────────────────────────────────────
+# ─── Вспомогательные функции ──────────────────────────────────────────────────
 
 def fmt(v: float) -> str:
     """Форматирует число: убирает лишние нули, меняет точку на запятую."""
@@ -156,7 +157,7 @@ def normalize_link(value: str, fallback: str) -> str:
     return fallback
 
 
-# ─── Клавиатуры ──────────────────────────────────────────────────────────
+# ─── Клавиатуры ───────────────────────────────────────────────────────────────
 
 def main_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
@@ -277,7 +278,7 @@ async def safe_edit(callback: CallbackQuery, text: str, kb: InlineKeyboardMarkup
             await msg.answer(text, reply_markup=kb)
 
 
-# ─── Уведомления ─────────────────────────────────────────────────────────
+# ─── Уведомления ──────────────────────────────────────────────────────────────
 
 async def notify_admin_about_payment(order_code: str) -> None:
     """Если настроен второй бот-нотификатор — шлёт ему уведомление об оплате."""
@@ -382,7 +383,7 @@ async def _payment_checker(bot: Bot) -> None:
             logger.exception("Payment checker iteration error")
 
 
-# ─── Команды бота (меню) ─────────────────────────────────────────────────────
+# ─── Команды бота (меню) ──────────────────────────────────────────────────────
 
 async def setup_commands(bot: Bot) -> None:
     # Для всех пользователей — только /start
@@ -392,27 +393,28 @@ async def setup_commands(bot: Bot) -> None:
     )
     # Для каждого админа — полный список команд
     admin_cmds = [
-        BotCommand(command="admin",       description="Список всех команд"),
-        BotCommand(command="additem",     description="Добавить товар"),
-        BotCommand(command="editproduct", description="Редактировать товар"),
-        BotCommand(command="addpayload",  description="Добавить 1 единицу выдачи"),
-        BotCommand(command="setpayloads", description="Заменить всю выдачу"),
-        BotCommand(command="setname",     description="Переименовать товар"),
-        BotCommand(command="setdesc",     description="Изменить описание товара"),
-        BotCommand(command="setdelivery", description="Текст инструкции после оплаты"),
-        BotCommand(command="setstock",    description="Установить остаток"),
-        BotCommand(command="setimage",    description="Установить картинку экрана"),
-        BotCommand(command="images",      description="Статус всех картинок"),
-        BotCommand(command="getfileid",   description="Получить file_id фото"),
-        BotCommand(command="order",       description="Проверить заказ по коду"),
-        BotCommand(command="broadcast",   description="Рассылка всем покупателям"),
-        BotCommand(command="setbalance",  description="Установить баланс пользователю"),
-        BotCommand(command="setbutton",   description="Изменить текст кнопки"),
-        BotCommand(command="buttons",     description="Список всех кнопок"),
-        BotCommand(command="resetbutton", description="Вернуть кнопку к стандарту"),
-        BotCommand(command="resetallbuttons", description="Вернуть все кнопки"),
-        BotCommand(command="setcategory", description="Переименовать категорию"),
-        BotCommand(command="setsubcategory", description="Переименовать подкатегорию"),
+        BotCommand(command="adm",              description="Админ-панель 🛠"),
+        BotCommand(command="orders",           description="Все заказы 📋"),
+        BotCommand(command="admin",            description="Старое меню команд"),
+        BotCommand(command="additem",          description="Добавить товар"),
+        BotCommand(command="editproduct",      description="Редактировать товар"),
+        BotCommand(command="addpayload",       description="Добавить единицу выдачи"),
+        BotCommand(command="setpayloads",      description="Заменить выдачу"),
+        BotCommand(command="setname",          description="Переименовать товар"),
+        BotCommand(command="setdesc",          description="Изменить описание"),
+        BotCommand(command="setdelivery",      description="Инструкция после оплаты"),
+        BotCommand(command="setstock",         description="Установить остаток"),
+        BotCommand(command="setimage",         description="Установить картинку"),
+        BotCommand(command="images",           description="Статус картинок"),
+        BotCommand(command="getfileid",        description="Получить file_id"),
+        BotCommand(command="broadcast",        description="Рассылка покупателям"),
+        BotCommand(command="setbalance",       description="Баланс пользователю"),
+        BotCommand(command="setbutton",        description="Изменить кнопку"),
+        BotCommand(command="buttons",          description="Список кнопок"),
+        BotCommand(command="resetbutton",      description="Вернуть кнопку"),
+        BotCommand(command="resetallbuttons",  description="Вернуть все кнопки"),
+        BotCommand(command="setcategory",      description="Переименовать категорию"),
+        BotCommand(command="setsubcategory",   description="Переименовать подкатегорию"),
     ]
     for admin_id in settings.admin_ids:
         try:
@@ -424,7 +426,7 @@ async def setup_commands(bot: Bot) -> None:
             pass
 
 
-# ─── /start ──────────────────────────────────────────────────────────────
+# ─── /start ────────────────────────────────────────────────────────────────────
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
@@ -437,7 +439,7 @@ async def cmd_start(message: Message) -> None:
     await send_with_photo(message, text, main_kb(), get_image("start"))
 
 
-# ─── Навигация главного меню ──────────────────────────────────────────────
+# ─── Навигация главного меню ──────────────────────────────────────────────────
 
 @router.callback_query(F.data == "go:main")
 async def cb_go_main(callback: CallbackQuery) -> None:
@@ -559,7 +561,7 @@ async def cb_profile(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ─── Каталог ────────────────────────────────────────────────────────────
+# ─── Каталог ────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("cat:"))
 async def cb_category(callback: CallbackQuery) -> None:
@@ -618,7 +620,7 @@ async def cb_product(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ─── Покупка ────────────────────────────────────────────────────────────
+# ─── Покупка ──────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
@@ -712,7 +714,6 @@ async def cb_pay(callback: CallbackQuery) -> None:
             await callback.answer("Ошибка при снятии средств с баланса", show_alert=True)
             return
         
-        from app.db import mark_order_paid
         mark_order_paid(code)
         await notify_admin_about_payment(code)
         
@@ -1003,7 +1004,7 @@ async def cb_admin_reject(callback: CallbackQuery) -> None:
     await callback.answer("Заказ отклонён")
 
 
-# ─── Получение file_id фото ─────────────────────────────────────────────────
+# ─── Получение file_id фото ───────────────────────────────────────────────────
 
 @router.message(Command("getfileid"))
 async def cmd_getfileid(message: Message) -> None:
@@ -1027,7 +1028,7 @@ async def handle_photo(message: Message) -> None:
     )
 
 
-# ─── Картинки ─────────────────────────────────────────────────────────────
+# ─── Картинки ──────────────────────────────────────────────────────────────────
 
 @router.message(Command("setimage"))
 async def cmd_setimage(message: Message) -> None:
@@ -1043,6 +1044,7 @@ async def cmd_setimage(message: Message) -> None:
         return
     set_visual(key, value)
     await message.answer(f"✅ Картинка для <b>{key}</b> обновлена.")
+    log_admin_action(message.from_user.id, "setimage", f"key={key}")
 
 
 @router.message(Command("images"))
@@ -1057,7 +1059,7 @@ async def cmd_images(message: Message) -> None:
     await message.answer("🖼 <b>Картинки:</b>\n" + "\n".join(lines))
 
 
-# ─── Управление товарами ──────────────────────────────────────────────────
+# ─── Управление товарами ──────────────────────────────────────────────────────
 
 @router.message(Command("additem"))
 async def cmd_additem(message: Message, state: FSMContext) -> None:
@@ -1090,6 +1092,7 @@ async def state_add_product(message: Message, state: FSMContext) -> None:
     pid = add_custom_product(category, subcategory, title, price, ptype, stock)
     await state.clear()
     await message.answer(f"✅ Товар добавлен.\n🆔 product_id = <code>{pid}</code>")
+    log_admin_action(message.from_user.id, "additem", f"product_id={pid}")
 
 
 @router.message(Command("editproduct"))
@@ -1155,6 +1158,7 @@ async def state_editproduct(message: Message, state: FSMContext) -> None:
         f"💰 Цена: ${fmt(price)}\n"
         f"📊 Остаток: {stock} шт."
     )
+    log_admin_action(message.from_user.id, "editproduct", f"product_id={pid}")
 
 
 @router.message(Command("addpayload"))
@@ -1173,6 +1177,7 @@ async def cmd_addpayload(message: Message) -> None:
         return
     ok = add_product_payload(pid, payload)
     await message.answer("✅ Единица выдачи добавлена." if ok else "❌ Товар не найден.")
+    log_admin_action(message.from_user.id, "addpayload", f"product_id={pid}")
 
 
 @router.message(Command("setpayloads"))
@@ -1192,6 +1197,7 @@ async def cmd_setpayloads(message: Message) -> None:
     items = [x.strip() for x in blob.split(";") if x.strip()]
     ok    = replace_product_payloads(pid, items)
     await message.answer(f"✅ Выдача заменена. Записей: {len(items)}" if ok else "❌ Товар не найден.")
+    log_admin_action(message.from_user.id, "setpayloads", f"product_id={pid}")
 
 
 @router.message(Command("setstock"))
@@ -1214,6 +1220,7 @@ async def cmd_setstock(message: Message) -> None:
     delta = qty - int(product["stock"])
     ok    = adjust_stock(pid, delta)
     await message.answer(f"✅ Остаток установлен: {qty} шт." if ok else "❌ Ошибка обновления.")
+    log_admin_action(message.from_user.id, "setstock", f"product_id={pid},qty={qty}")
 
 
 @router.message(Command("setname"))
@@ -1232,6 +1239,7 @@ async def cmd_setname(message: Message) -> None:
         return
     ok = update_product_content(pid, title=title)
     await message.answer("✅ Название обновлено." if ok else "❌ Товар не найден.")
+    log_admin_action(message.from_user.id, "setname", f"product_id={pid}")
 
 
 @router.message(Command("setdesc"))
@@ -1250,6 +1258,7 @@ async def cmd_setdesc(message: Message) -> None:
         return
     ok = update_product_content(pid, description=desc)
     await message.answer("✅ Описание обновлено." if ok else "❌ Товар не найден.")
+    log_admin_action(message.from_user.id, "setdesc", f"product_id={pid}")
 
 
 @router.message(Command("setdelivery"))
@@ -1268,9 +1277,10 @@ async def cmd_setdelivery(message: Message) -> None:
         return
     ok = update_product_content(pid, delivery_text=delivery)
     await message.answer("✅ Инструкция по выдаче обновлена." if ok else "❌ Товар не найден.")
+    log_admin_action(message.from_user.id, "setdelivery", f"product_id={pid}")
 
 
-# ─── Заказы ────────────────────────────────────────────────────────────
+# ─── Заказы ───────────────────────────────────────────────────────────────────
 
 @router.message(Command("order"))
 async def cmd_order(message: Message) -> None:
@@ -1295,9 +1305,10 @@ async def cmd_order(message: Message) -> None:
         f"📌 Статус: {order['payment_status']}\n"
         f"👤 User ID: <code>{order['tg_user_id']}</code>"
     )
+    log_admin_action(message.from_user.id, "order", f"order_code={order['order_code']}")
 
 
-# ─── Управление балансом ──────────────────────────────────────────────────
+# ─── Управление балансом ──────────────────────────────────────────────────────
 
 @router.message(Command("setbalance"))
 async def cmd_setbalance(message: Message, state: FSMContext) -> None:
@@ -1330,9 +1341,10 @@ async def state_set_balance(message: Message, state: FSMContext) -> None:
     set_balance(uid, amount_usd, amount_rub)
     await state.clear()
     await message.answer(f"✅ Баланс установлен.\n👤 User: {uid}\n💰 Баланс: ${fmt(amount_usd)} / {fmt(amount_rub)}₽")
+    log_admin_action(message.from_user.id, "setbalance", f"user_id={uid}")
 
 
-# ─── Управление кнопками ──────────────────────────────────────────────────
+# ─── Управление кнопками ──────────────────────────────────────────────────────
 
 @router.message(Command("setbutton"))
 async def cmd_setbutton(message: Message) -> None:
@@ -1352,6 +1364,7 @@ async def cmd_setbutton(message: Message) -> None:
     
     set_button_text(bid, text)
     await message.answer(f"✅ Кнопка <b>{bid}</b> обновлена на <b>{text}</b>")
+    log_admin_action(message.from_user.id, "setbutton", f"button_id={bid}")
 
 
 @router.message(Command("buttons"))
@@ -1382,6 +1395,7 @@ async def cmd_resetbutton(message: Message) -> None:
     
     reset_button_text(bid)
     await message.answer(f"✅ Кнопка <b>{bid}</b> вернена к стандарту")
+    log_admin_action(message.from_user.id, "resetbutton", f"button_id={bid}")
 
 
 @router.message(Command("resetallbuttons"))
@@ -1390,9 +1404,10 @@ async def cmd_resetallbuttons(message: Message) -> None:
         return
     reset_all_buttons()
     await message.answer("✅ Все кнопки вернены к стандартам")
+    log_admin_action(message.from_user.id, "resetallbuttons")
 
 
-# ─── Переименование категорий / подкатегорий ──────────────────────────────
+# ─── Переименование категорий / подкатегорий ──────────────────────────────────
 
 @router.message(Command("setcategory"))
 async def cmd_setcategory(message: Message) -> None:
@@ -1414,6 +1429,7 @@ async def cmd_setcategory(message: Message) -> None:
         return
     ok = rename_category(cid, new_name)
     await message.answer(f"✅ Категория переименована в <b>{new_name}</b>" if ok else "❌ Категория не найдена.")
+    log_admin_action(message.from_user.id, "setcategory", f"category_id={cid}")
 
 
 @router.message(Command("setsubcategory"))
@@ -1439,9 +1455,10 @@ async def cmd_setsubcategory(message: Message) -> None:
         return
     ok = rename_subcategory(sid, new_name)
     await message.answer(f"✅ Подкатегория переименована в <b>{new_name}</b>" if ok else "❌ Подкатегория не найдена.")
+    log_admin_action(message.from_user.id, "setsubcategory", f"subcategory_id={sid}")
 
 
-# ─── Рассылка ──────────────────────────────────────────────────────────
+# ─── Рассылка ──────────────────────────────────────────────────────────────────
 
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext) -> None:
@@ -1467,64 +1484,65 @@ async def state_broadcast(message: Message, state: FSMContext, bot: Bot) -> None
         except Exception:
             continue
     await message.answer(f"📢 Рассылка завершена.\nДоставлено: {sent} из {len(user_ids)}")
+    log_admin_action(message.from_user.id, "broadcast", f"sent={sent}")
 
 
-# ─── Админ-панель ─────────────────────────────────────────────────────────
+# ─── Админ-панель ──────────────────────────────────────────────────────────────
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
     text = (
-        "🛠 <b>Админ-панель — список команд</b>\n"
-        "➖➖➖➖➖➖➖➖➖➖\n\n"
+        "🛠 <b>АДМИН-ПАНЕЛЬ — ПОЛНЫЙ СПИСОК КОМАНД</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-        "📦 <b>Товары</b>\n"
+        "🆕 <b>БЫСТРЫЕ КОМАНДЫ</b>\n"
+        "<b>/adm</b> — главная админ-панель 🛠\n"
+        "<b>/orders</b> — менюшка со всеми заказами 📋\n\n"
+
+        "📦 <b>ТОВАРЫ</b>\n"
         "<b>/additem</b> — добавить новый товар.\n"
-        "Формат: <code>Категория | Подкатегория | Название | Цена | Тип | Остаток</code>\n\n"
+        "<b>/editproduct</b> — редактировать товар.\n"
+        "<b>/setname</b> — переименовать товар.\n"
+        "<b>/setdesc</b> — изменить описание.\n"
+        "<b>/setstock</b> — установить остаток.\n"
+        "<b>/setdelivery</b> — инструкция после оплаты.\n\n"
 
-        "<b>/editproduct</b> — редактировать существующий товар.\n"
-        "Формат: <code>ID | название | описание | цена | тип | остаток</code>\n\n"
+        "🗝 <b>ВЫДАЧА ТОВАРОВ</b>\n"
+        "<b>/addpayload</b> — добавить 1 единицу выдачи.\n"
+        "<b>/setpayloads</b> — заменить всю выдачу.\n\n"
 
-        "<b>/setname</b> <code>ID | новое название</code>\n"
-        "<b>/setdesc</b> <code>ID | описание товара</code>\n"
-        "<b>/setstock</b> <code>ID количество</code>\n\n"
-
-        "🗝 <b>Выдача</b>\n"
-        "<b>/addpayload</b> <code>ID | данные</code> — добавить 1 единицу.\n"
-        "<b>/setpayloads</b> <code>ID | ключ1 ; ключ2 ; ключ3</code> — заменить всё.\n"
-        "<b>/setdelivery</b> <code>ID | инструкция</code> — текст после оплаты.\n\n"
-
-        "🖼 <b>Картинки</b>\n"
-        "<b>/getfileid</b> — получить file_id отправленного фото.\n"
-        "<b>/setimage</b> <code>ключ file_id</code> — установить картинку.\n"
+        "🖼 <b>КАРТИНКИ</b>\n"
+        "<b>/getfileid</b> — получить file_id фото.\n"
+        "<b>/setimage</b> — установить картинку.\n"
         "<b>/images</b> — статус всех картинок.\n\n"
 
-        "💳 <b>Баланс</b>\n"
-        "<b>/setbalance</b> — установить баланс пользователю.\n\n"
+        "💳 <b>БАЛАНС И ПЛАТЕЖИ</b>\n"
+        "<b>/setbalance</b> — установить баланс юзеру.\n"
+        "<b>/order</b> — информация о заказе.\n\n"
 
-        "🔘 <b>Кнопки</b>\n"
-        "<b>/setbutton</b> <code>button_id | новый текст</code> — изменить кнопку.\n"
+        "🔘 <b>КНОПКИ</b>\n"
+        "<b>/setbutton</b> — изменить текст кнопки.\n"
         "<b>/buttons</b> — список всех кнопок.\n"
-        "<b>/resetbutton</b> <code>button_id</code> — вернуть кнопку.\n"
+        "<b>/resetbutton</b> — вернуть кнопку.\n"
         "<b>/resetallbuttons</b> — вернуть все кнопки.\n\n"
 
-        "📂 <b>Категории</b>\n"
-        "<b>/setcategory</b> <code>ID | новое название</code> — переименовать категорию.\n"
-        "<b>/setsubcategory</b> <code>ID | новое название</code> — переименовать подкатегорию.\n\n"
+        "📂 <b>КАТЕГОРИИ</b>\n"
+        "<b>/setcategory</b> — переименовать категорию.\n"
+        "<b>/setsubcategory</b> — переименовать подкатегорию.\n\n"
 
-        "📋 <b>Прочее</b>\n"
-        "<b>/order</b> <code>код</code> — информация о заказе.\n"
-        "<b>/broadcast</b> — рассылка всем покупателям.\n\n"
+        "📢 <b>РАССЫЛКА</b>\n"
+        "<b>/broadcast</b> — отправить сообщение всем.\n\n"
 
-        "➖➖➖➖➖➖➖➖➖➖\n"
-        "💡 <b>Как узнать product_id?</b>\n"
-        "Сделайте тестовую покупку и используйте /order — там будет product_id."
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <b>Совет:</b> Используйте <b>/adm</b> для удобной панели! 🎯"
     )
     await message.answer(text)
+    log_admin_action(message.from_user.id, "admin_help")
 
 
-# ─── Запуск ────────────────────────────────────────────────────────────
+# ─── Запуск ────────────────────────────────────────────────────────────────────
 
 async def run() -> None:
     logging.basicConfig(level=logging.INFO)
@@ -1539,6 +1557,11 @@ async def run() -> None:
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+    
+    # Импортируем и регистрируем админ меню
+    from app.admin_menu import admin_router
+    dp.include_router(admin_router)
+    
     await dp.start_polling(bot)
 
 
