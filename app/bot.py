@@ -32,7 +32,9 @@ from app.db import (
     add_product_payload,
     adjust_stock,
     cancel_expired_orders,
+    count_orders,
     create_order,
+    get_all_orders,
     get_all_user_ids,
     get_button_text,
     get_conn,
@@ -404,6 +406,7 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="images",      description="Статус всех картинок"),
         BotCommand(command="getfileid",   description="Получить file_id фото"),
         BotCommand(command="order",       description="Проверить заказ по коду"),
+        BotCommand(command="orders",      description="Все заказы с фильтрами"),
         BotCommand(command="broadcast",   description="Рассылка всем покупателям"),
         BotCommand(command="setbalance",  description="Установить баланс пользователю"),
         BotCommand(command="setbutton",   description="Изменить текст кнопки"),
@@ -1388,6 +1391,170 @@ async def cmd_setsubcategory(message: Message) -> None:
     await message.answer(f"✅ Подкатегория переименована в <b>{new_name}</b>" if ok else "❌ Подкатегория не найдена.")
 
 
+# ─── Список заказов (админ) ───────────────────────────────────────────────
+
+ORDERS_PAGE_SIZE = 8
+
+# Цветовые эмодзи для статусов
+ORDER_STATUS_ICON = {
+    "paid":    "🟢",
+    "pending": "🟡",
+    "expired": "🔴",
+    "cancelled": "⛔",
+}
+
+ORDER_STATUS_LABEL = {
+    "paid":    "Оплачен",
+    "pending": "Ожидает",
+    "expired": "Истёк",
+    "cancelled": "Отменён",
+}
+
+
+def orders_text(orders: list, page: int, total: int, status_filter: str | None) -> str:
+    """Формирует текст списка заказов."""
+    import datetime
+    filter_label = {
+        None:      "Все",
+        "paid":    "🟢 Оплаченные",
+        "pending": "🟡 Ожидающие",
+        "expired": "🔴 Истёкшие",
+    }.get(status_filter, "Все")
+
+    pages_total = max(1, (total + ORDERS_PAGE_SIZE - 1) // ORDERS_PAGE_SIZE)
+    header = (
+        f"📋 <b>Заказы</b> — {filter_label}\n"
+        f"Всего: {total} | Стр. {page + 1}/{pages_total}\n"
+        "➖➖➖➖➖➖➖➖➖\n\n"
+    )
+    if not orders:
+        return header + "Заказов не найдено."
+
+    lines = []
+    for o in orders:
+        status = o["payment_status"]
+        icon   = ORDER_STATUS_ICON.get(status, "⚪")
+        label  = ORDER_STATUS_LABEL.get(status, status)
+        title  = (o["product_title"] or "—")[:22]
+        ts     = datetime.datetime.fromtimestamp(o["created_ts"]).strftime("%d.%m %H:%M")
+        lines.append(
+            f"{icon} <code>{o['order_code']}</code> | {ts}\n"
+            f"   📦 {title} × {o['qty']} шт. | 💵 {fmt(o['total_usd'])}$\n"
+            f"   👤 <code>{o['tg_user_id']}</code> | {label}"
+        )
+    return header + "\n\n".join(lines)
+
+
+def orders_kb(page: int, total: int, status_filter: str | None) -> InlineKeyboardMarkup:
+    """Клавиатура для /orders: фильтры + пагинация."""
+    kb = InlineKeyboardBuilder()
+
+    # Строка фильтров
+    filters = [
+        ("Все",       None),
+        ("🟢",        "paid"),
+        ("🟡",        "pending"),
+        ("🔴",        "expired"),
+    ]
+    for label, f in filters:
+        active = "·" if f == status_filter else ""
+        sf_str = f or "all"
+        kb.button(
+            text=f"{active}{label}{active}",
+            callback_data=f"orders:filter:{sf_str}:0",
+        )
+    kb.adjust(4)
+
+    # Пагинация
+    pages_total = max(1, (total + ORDERS_PAGE_SIZE - 1) // ORDERS_PAGE_SIZE)
+    sf_str = status_filter or "all"
+    nav_row = []
+    if page > 0:
+        nav_row.append(("◀️", f"orders:page:{sf_str}:{page - 1}"))
+    nav_row.append((f"{page + 1}/{pages_total}", "orders:noop"))
+    if (page + 1) * ORDERS_PAGE_SIZE < total:
+        nav_row.append(("▶️", f"orders:page:{sf_str}:{page + 1}"))
+
+    for label, cb in nav_row:
+        kb.button(text=label, callback_data=cb)
+    kb.adjust(4, len(nav_row))
+
+    # Кнопка закрыть
+    kb.button(text="✖️ Закрыть", callback_data="orders:close")
+    kb.adjust(4, len(nav_row), 1)
+    return kb.as_markup()
+
+
+@router.message(Command("orders"))
+async def cmd_orders(message: Message) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    total  = count_orders()
+    orders = get_all_orders(limit=ORDERS_PAGE_SIZE, offset=0)
+    await message.answer(
+        orders_text(orders, 0, total, None),
+        reply_markup=orders_kb(0, total, None),
+    )
+
+
+@router.callback_query(F.data.startswith("orders:filter:"))
+async def cb_orders_filter(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in settings.admin_ids:
+        await callback.answer()
+        return
+    # orders:filter:<status>:<page>
+    parts        = callback.data.split(":")
+    sf_raw       = parts[2]
+    status_filter = None if sf_raw == "all" else sf_raw
+    page         = int(parts[3])
+    total        = count_orders(status_filter)
+    orders       = get_all_orders(limit=ORDERS_PAGE_SIZE, offset=page * ORDERS_PAGE_SIZE, status_filter=status_filter)
+    try:
+        await callback.message.edit_text(
+            orders_text(orders, page, total, status_filter),
+            reply_markup=orders_kb(page, total, status_filter),
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("orders:page:"))
+async def cb_orders_page(callback: CallbackQuery) -> None:
+    if callback.from_user.id not in settings.admin_ids:
+        await callback.answer()
+        return
+    # orders:page:<status>:<page>
+    parts         = callback.data.split(":")
+    sf_raw        = parts[2]
+    status_filter = None if sf_raw == "all" else sf_raw
+    page          = int(parts[3])
+    total         = count_orders(status_filter)
+    orders        = get_all_orders(limit=ORDERS_PAGE_SIZE, offset=page * ORDERS_PAGE_SIZE, status_filter=status_filter)
+    try:
+        await callback.message.edit_text(
+            orders_text(orders, page, total, status_filter),
+            reply_markup=orders_kb(page, total, status_filter),
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data == "orders:noop")
+async def cb_orders_noop(callback: CallbackQuery) -> None:
+    await callback.answer()
+
+
+@router.callback_query(F.data == "orders:close")
+async def cb_orders_close(callback: CallbackQuery) -> None:
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
 # ─── Рассылка ──────────────────────────────────────────────────────────
 
 @router.message(Command("broadcast"))
@@ -1462,7 +1629,8 @@ async def cmd_admin(message: Message) -> None:
         "<b>/setsubcategory</b> <code>ID | новое название</code> — переименовать подкатегорию.\n\n"
 
         "📋 <b>Прочее</b>\n"
-        "<b>/order</b> <code>код</code> — информация о заказе.\n"
+        "<b>/order</b> <code>код</code> — информация о конкретном заказе.\n"
+        "<b>/orders</b> — все заказы: фильтры по статусу, пагинация.\n"
         "<b>/broadcast</b> — рассылка всем покупателям.\n\n"
 
         "➖➖➖➖➖➖➖➖➖➖\n"
