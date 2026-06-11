@@ -668,6 +668,51 @@ def get_pending_crypto_orders() -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_all_orders(
+    limit: int = 20,
+    offset: int = 0,
+    status_filter: str | None = None,
+) -> list[sqlite3.Row]:
+    """Возвращает все заказы с пагинацией и необязательной фильтрацией по статусу."""
+    with get_conn() as conn:
+        if status_filter:
+            return conn.execute(
+                """
+                SELECT o.*, p.title as product_title
+                FROM orders o
+                LEFT JOIN products p ON o.product_id = p.id
+                WHERE o.payment_status = ?
+                ORDER BY o.created_ts DESC
+                LIMIT ? OFFSET ?
+                """,
+                (status_filter, limit, offset),
+            ).fetchall()
+        else:
+            return conn.execute(
+                """
+                SELECT o.*, p.title as product_title
+                FROM orders o
+                LEFT JOIN products p ON o.product_id = p.id
+                ORDER BY o.created_ts DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+
+
+def count_orders(status_filter: str | None = None) -> int:
+    """Считает общее количество заказов (опционально по статусу)."""
+    with get_conn() as conn:
+        if status_filter:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM orders WHERE payment_status = ?",
+                (status_filter,),
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT COUNT(*) as cnt FROM orders").fetchone()
+        return int(row["cnt"]) if row else 0
+
+
 def cancel_expired_orders() -> list[sqlite3.Row]:
     import time
     now = int(time.time())
