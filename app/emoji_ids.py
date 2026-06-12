@@ -38,6 +38,7 @@ PRODUCT_TYPE_EMOJI = {
     "gmail":      ("gmail", "📧"),
     "youtube":    ("youtube", "▶️"),
     "pixeart":    ("pixeart", "🎨"),
+    "picsart":    ("pixeart", "🎨"),
     "amazon":     ("amazon", "🛍️"),
     "capcut":     ("capcut", "✂️"),
     "apple":      ("apple", "🍎"),
@@ -119,9 +120,15 @@ def get_button_icon_id(product_title: str) -> str | None:
     """
     Возвращает icon_custom_emoji_id для кнопки товара по названию,
     либо None если совпадение не найдено.
+
+    Сначала проверяет BUTTON_ICON_BY_TITLE (ручные привязки),
+    затем PREMIUM_EMOJI по ключу из get_product_emoji().
     """
     title_lower = product_title.lower()
     for key, emoji_id in BUTTON_ICON_BY_TITLE:
         if key in title_lower:
             return emoji_id
+    for key, (emoji_key, _) in PRODUCT_TYPE_EMOJI.items():
+        if key in title_lower:
+            return PREMIUM_EMOJI.get(emoji_key)
     return None
