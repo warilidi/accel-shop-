@@ -204,6 +204,8 @@ def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
 
 def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    sub = get_subcategory(subcategory_id)
+    sub_name = sub["name"] if sub else ""
     for p in list_products(subcategory_id):
         title = strip_unicode_emoji(p["title"])
         ptype = strip_unicode_emoji((p["product_type"] or "").strip())
@@ -212,7 +214,7 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
         price_part = f" — ${fmt(p['price_usd'])}"
         stock_note = "" if p["stock"] > 0 else " · нет в наличии"
         btn_text = f"{title}{price_part}{stock_note}"
-        icon_id = get_button_icon_id(p["title"])
+        icon_id = get_button_icon_id(p["title"], sub_name)
         if icon_id:
             kb.button(
                 text=btn_text,

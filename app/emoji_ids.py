@@ -71,6 +71,7 @@ PRODUCT_TYPE_EMOJI = {
     "amazon":     ("amazon", "🛍️"),
     "capcut":     ("capcut", "✂️"),
     "apple":      ("apple", "🍎"),
+    "ipad":       ("apple", "🍎"),
     "windows":    ("windows", "🪟"),
     "steam":      ("steam", "🎮"),
     "adobe":      ("adobe", "📐"),
@@ -144,14 +145,37 @@ BUTTON_ICON_BY_TITLE = [
     ("veo3",     "5206660927339924387"),
 ]
 
+# Иконка по названию подкатегории, если в title товара нет совпадения
+SUBCATEGORY_ICON = {
+    "chatgpt":      "chatgpt",
+    "perplexity":   "perplexity",
+    "grok":         "grok",
+    "gemini":       "gemini",
+    "claude":       "claude",
+    "cursor":       "cursor",
+    "suno ai":      "suno",
+    "spotify":      "spotify",
+    "netflix":      "netflix",
+    "discord":      "discord",
+    "почты gmail":  "gmail",
+    "youtube":      "youtube",
+    "picsart":      "pixeart",
+    "amazon prime": "amazon",
+    "capcut":       "capcut",
+    "apple":        "apple",
+    "windows":      "windows",
+    "steam":        "steam",
+}
 
-def get_button_icon_id(product_title: str) -> str | None:
+
+def get_button_icon_id(product_title: str, subcategory_name: str | None = None) -> str | None:
     """
     Возвращает icon_custom_emoji_id для кнопки товара по названию,
     либо None если совпадение не найдено.
 
     Сначала проверяет BUTTON_ICON_BY_TITLE (ручные привязки),
-    затем PREMIUM_EMOJI по ключу из get_product_emoji().
+    затем PREMIUM_EMOJI по подстроке в названии товара,
+    затем по названию подкатегории (например Apple → iPad Сертификат).
     """
     title_lower = product_title.lower()
     for key, emoji_id in BUTTON_ICON_BY_TITLE:
@@ -163,4 +187,11 @@ def get_button_icon_id(product_title: str) -> str | None:
     ):
         if key in title_lower:
             return PREMIUM_EMOJI.get(emoji_key)
+    if subcategory_name:
+        sub_lower = subcategory_name.lower()
+        for key, emoji_key in sorted(
+            SUBCATEGORY_ICON.items(), key=lambda item: len(item[0]), reverse=True
+        ):
+            if key in sub_lower:
+                return PREMIUM_EMOJI.get(emoji_key)
     return None
