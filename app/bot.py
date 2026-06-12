@@ -27,7 +27,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
 from app.cryptobot import check_invoice_status, create_invoice
-from app.emoji_ids import get_button_icon_id
+from app.emoji_ids import get_button_icon_id, strip_unicode_emoji
 from app.db import (
     add_balance,
     add_custom_product,
@@ -76,7 +76,7 @@ router = Router()
 settings = load_settings()
 
 # Подпись под каждым сообщением со стороны магазина
-SHOP_FOOTER = "— 💎 Админ/Связь/Опт — @Dolzu"
+SHOP_FOOTER = "— Админ/Связь/Опт — @Dolzu"
 
 # Картинки по умолчанию (можно переопределить через /setimage)
 VISUALS: dict[str, str] = {}
@@ -187,7 +187,7 @@ def rules_kb() -> InlineKeyboardMarkup:
 def categories_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for cat in list_categories():
-        kb.button(text=cat["name"], callback_data=f"cat:{cat['id']}")
+        kb.button(text=strip_unicode_emoji(cat["name"]), callback_data=f"cat:{cat['id']}")
     kb.button(text=get_button_text("back"), callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
@@ -196,7 +196,7 @@ def categories_kb() -> InlineKeyboardMarkup:
 def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for sub in list_subcategories(category_id):
-        kb.button(text=sub["name"], callback_data=f"sub:{sub['id']}")
+        kb.button(text=strip_unicode_emoji(sub["name"]), callback_data=f"sub:{sub['id']}")
     kb.button(text=get_button_text("back"), callback_data="menu:catalog")
     kb.adjust(1)
     return kb.as_markup()
@@ -205,17 +205,15 @@ def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
 def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for p in list_products(subcategory_id):
-        icon  = "✅" if p["stock"] > 0 else "❌"
-        title = p["title"]
-        ptype = (p["product_type"] or "").strip()
-        # Добавляем [тип] если его ещё нет в названии
+        title = strip_unicode_emoji(p["title"])
+        ptype = strip_unicode_emoji((p["product_type"] or "").strip())
         if ptype and not title.startswith("["):
             title = f"[{ptype}] {title}"
-        icon_id = get_button_icon_id(p["title"])
         price_part = f" — ${fmt(p['price_usd'])}"
+        stock_note = "" if p["stock"] > 0 else " · нет в наличии"
+        btn_text = f"{title}{price_part}{stock_note}"
+        icon_id = get_button_icon_id(p["title"])
         if icon_id:
-            # icon_custom_emoji_id уже рисует иконку слева — не дублируем ✅ в тексте
-            btn_text = f"{title}{price_part}" if p["stock"] > 0 else f"❌ {title}{price_part}"
             kb.button(
                 text=btn_text,
                 callback_data=f"prod:{p['id']}",
@@ -223,7 +221,7 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
             )
         else:
             kb.button(
-                text=f"{icon} {title}{price_part}",
+                text=btn_text,
                 callback_data=f"prod:{p['id']}",
             )
     kb.button(text=get_button_text("back"), callback_data="go:cats")
@@ -458,10 +456,10 @@ async def is_subscribed(bot: Bot, user_id: int) -> bool:
 def subscribe_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(
-        text="📢 Подписаться на канал",
+        text="Подписаться на канал",
         url=f"https://t.me/{REQUIRED_CHANNEL_USERNAME}",
     )
-    kb.button(text="✅ Я подписался", callback_data="check_subscription")
+    kb.button(text="Я подписался", callback_data="check_subscription")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -589,7 +587,7 @@ async def cb_balance_topup(callback: CallbackQuery, bot: Bot) -> None:
         "Укажите желаемую сумму."
     )
     kb = InlineKeyboardBuilder()
-    kb.button(text="💬 Написать админу", url="https://t.me/Dolzu")
+    kb.button(text="Написать админу", url="https://t.me/Dolzu")
     kb.button(text=get_button_text("back"), callback_data="menu:balance")
     kb.adjust(1)
     await safe_edit(callback, text, kb.as_markup())
@@ -711,7 +709,7 @@ async def cb_product(callback: CallbackQuery, bot: Bot) -> None:
 
     ptype  = (product["product_type"] or "").strip()
     hint   = PRODUCT_TYPE_HINTS.get(ptype, "Уточняйте у администратора.")
-    status = "✅ В наличии" if product["stock"] > 0 else "❌ Нет в наличии"
+    status = "В наличии" if product["stock"] > 0 else "Нет в наличии"
     desc   = (product["description"] or "").strip()
 
     text = (
@@ -894,8 +892,8 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
                     "🔄 Оплата будет подтверждена автоматически."
                 )
                 kb = InlineKeyboardBuilder()
-                kb.button(text="💳 Оплатить", url=pay_link)
-                kb.button(text="🔄 Проверить оплату", callback_data=f"check:{code}")
+                kb.button(text="Оплатить", url=pay_link)
+                kb.button(text="Проверить оплату", callback_data=f"check:{code}")
                 kb.adjust(1)
                 await safe_edit(callback, text, kb.as_markup())
                 await callback.answer()
@@ -1553,7 +1551,7 @@ def orders_kb(page: int, total: int, status_filter: str | None) -> InlineKeyboar
     kb.adjust(4, len(nav_row))
 
     # Кнопка закрыть
-    kb.button(text="✖️ Закрыть", callback_data="orders:close")
+    kb.button(text="Закрыть", callback_data="orders:close")
     kb.adjust(4, len(nav_row), 1)
     return kb.as_markup()
 

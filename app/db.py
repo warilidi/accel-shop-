@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.catalog_data import DEFAULT_CATALOG
+from app.emoji_ids import strip_unicode_emoji
 
 DB_PATH = Path("shop.db")
 
@@ -617,23 +618,23 @@ def set_balance(tg_user_id: int, amount_usd: float, amount_rub: float) -> bool:
 
 # Default button texts
 DEFAULT_BUTTON_TEXTS = {
-    "catalog": "🛍️ Товары и услуги",
-    "balance": "💳 Баланс",
-    "wholesale": "💎 Опт",
-    "help": "🛟 Помощь",
-    "profile": "👤 Профиль",
-    "rules": "📜 Правила",
-    "crypto_usdt": "💰 CryptoBot USDT",
-    "crypto_ton": "💎 CryptoBot TON",
-    "bybit": "🔶 Bybit",
-    "balance_pay": "💳 Баланс",
-    "topup": "➕ Пополнить баланс",
-    "history": "📊 История",
-    "back": "◀️ Назад",
-    "buy": "🛒 Купить",
-    "confirm_paid": "✅ Я оплатил",
-    "agree": "📄 Пользовательское соглашение",
-    "privacy": "🔒 Политика конфиденциальности",
+    "catalog": "Товары и услуги",
+    "balance": "Баланс",
+    "wholesale": "Опт",
+    "help": "Помощь",
+    "profile": "Профиль",
+    "rules": "Правила",
+    "crypto_usdt": "CryptoBot USDT",
+    "crypto_ton": "CryptoBot TON",
+    "bybit": "Bybit",
+    "balance_pay": "Баланс",
+    "topup": "Пополнить баланс",
+    "history": "История",
+    "back": "Назад",
+    "buy": "Купить",
+    "confirm_paid": "Я оплатил",
+    "agree": "Пользовательское соглашение",
+    "privacy": "Политика конфиденциальности",
 }
 
 
@@ -645,8 +646,8 @@ def get_button_text(button_id: str) -> str:
             (button_id,),
         ).fetchone()
         if row:
-            return row["text"]
-    return DEFAULT_BUTTON_TEXTS.get(button_id, button_id)
+            return strip_unicode_emoji(row["text"])
+    return strip_unicode_emoji(DEFAULT_BUTTON_TEXTS.get(button_id, button_id))
 
 
 def set_button_text(button_id: str, text: str) -> bool:
