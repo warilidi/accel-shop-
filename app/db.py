@@ -401,6 +401,7 @@ def add_custom_product(
     price_usd: float,
     product_type: str,
     stock: int,
+    payloads: list[str] | None = None,
 ) -> int:
     with get_conn() as conn:
         # Try exact match first, then case-insensitive partial match
@@ -440,12 +441,14 @@ def add_custom_product(
         else:
             sub_id = sub["id"]
 
+        cleaned_payloads = [p.strip() for p in (payloads or []) if p.strip()]
+        final_stock = len(cleaned_payloads) if cleaned_payloads else stock
         conn.execute(
             """
-            INSERT INTO products(subcategory_id, title, product_type, price_usd, stock)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO products(subcategory_id, title, product_type, price_usd, stock, payloads_json)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (sub_id, title, product_type, price_usd, stock),
+            (sub_id, title, product_type, price_usd, final_stock, json.dumps(cleaned_payloads, ensure_ascii=False)),
         )
         product_id = int(conn.execute("SELECT last_insert_rowid() AS i").fetchone()["i"])
         conn.commit()
