@@ -20,6 +20,7 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
     Message,
+    TelegramObject,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -428,26 +429,49 @@ async def setup_commands(bot: Bot) -> None:
 
 # ─── Проверка подписки на канал ────────────────────────────────────────────
 
+# Канал всегда обязателен — задан жёстко
+REQUIRED_CHANNEL_USERNAME = "accel_shop"
+REQUIRED_CHANNEL_ID       = "@accel_shop"  # строка работает в get_chat_member
+
+
 async def is_subscribed(bot: Bot, user_id: int) -> bool:
-    """Проверяет, подписан ли пользователь на канал."""
-    if not settings.channel_id:
-        return True  # если канал не настроен, пропускаем проверку
+    """Проверяет, подписан ли пользователь на канал @accel_shop."""
     try:
-        member = await bot.get_chat_member(chat_id=settings.channel_id, user_id=user_id)
+        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL_ID, user_id=user_id)
         return member.status not in ("left", "kicked", "banned")
     except Exception:
-        return True  # если не удалось проверить, пропускаем
+        return True  # если бот не может проверить (не добавлен в канал) — пропускаем
 
 
 def subscribe_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(
         text="📢 Подписаться на канал",
-        url=f"https://t.me/{settings.channel_username}",
+        url=f"https://t.me/{REQUIRED_CHANNEL_USERNAME}",
     )
     kb.button(text="✅ Я подписался", callback_data="check_subscription")
     kb.adjust(1)
     return kb.as_markup()
+
+
+async def require_subscription(bot: Bot, user_id: int, callback: CallbackQuery | None = None) -> bool:
+    """
+    Проверяет подписку. Если не подписан — показывает заглушку и возвращает False.
+    Используй: if not await require_subscription(bot, uid, callback): return
+    """
+    if await is_subscribed(bot, user_id):
+        return True
+    text = (
+        "🔒 <b>Доступ закрыт</b>\n\n"
+        "Для использования магазина необходимо подписаться на наш канал:"
+    )
+    if callback:
+        try:
+            await callback.message.answer(text, reply_markup=subscribe_kb())
+        except Exception:
+            pass
+        await callback.answer("Подпишитесь на канал!", show_alert=True)
+    return False
 
 
 # ─── /start ───────────────────────────────────────────────────────────────
@@ -507,7 +531,9 @@ async def cb_go_main(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "menu:catalog")
-async def cb_catalog(callback: CallbackQuery) -> None:
+async def cb_catalog(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     text  = "🛍️ <b>Товары и услуги</b>\nВыберите раздел:"
     photo = get_image("categories")
     if photo:
@@ -518,13 +544,17 @@ async def cb_catalog(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "go:cats")
-async def cb_go_cats(callback: CallbackQuery) -> None:
+async def cb_go_cats(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     await safe_edit(callback, "📂 Выберите раздел:", categories_kb())
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:balance")
-async def cb_balance(callback: CallbackQuery) -> None:
+async def cb_balance(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     uid = callback.from_user.id
     balance_usd, balance_rub = get_user_balance(uid)
     text = (
@@ -537,7 +567,9 @@ async def cb_balance(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "balance:topup")
-async def cb_balance_topup(callback: CallbackQuery) -> None:
+async def cb_balance_topup(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     text = (
         "💳 <b>Пополнение баланса</b>\n\n"
         "Свяжитесь с администратором для пополнения баланса:\n"
@@ -553,7 +585,9 @@ async def cb_balance_topup(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "balance:history")
-async def cb_balance_history(callback: CallbackQuery) -> None:
+async def cb_balance_history(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     uid = callback.from_user.id
     with get_conn() as conn:
         rows = conn.execute(
@@ -575,7 +609,9 @@ async def cb_balance_history(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "menu:rules")
-async def cb_rules(callback: CallbackQuery) -> None:
+async def cb_rules(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     text = (
         "📚 <b>Правила и соглашения</b>\n\n"
         "Перед использованием магазина ознакомьтесь с документами:"
@@ -589,7 +625,9 @@ async def cb_rules(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "menu:profile")
-async def cb_profile(callback: CallbackQuery) -> None:
+async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     uid       = callback.from_user.id
     username  = callback.from_user.username
     full_name = callback.from_user.full_name or "—"
@@ -623,14 +661,18 @@ async def cb_profile(callback: CallbackQuery) -> None:
 # ─── Каталог ───────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("cat:"))
-async def cb_category(callback: CallbackQuery) -> None:
+async def cb_category(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     cat_id = int(callback.data.split(":")[1])
     await safe_edit(callback, "📂 Выберите сервис:", subcategories_kb(cat_id))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("sub:"))
-async def cb_subcategory(callback: CallbackQuery) -> None:
+async def cb_subcategory(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     sub_id  = int(callback.data.split(":")[1])
     sub     = get_subcategory(sub_id)
     name    = sub["name"] if sub else ""
@@ -645,7 +687,9 @@ async def cb_subcategory(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("prod:"))
-async def cb_product(callback: CallbackQuery) -> None:
+async def cb_product(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     product_id = int(callback.data.split(":")[1])
     product    = get_product(product_id)
 
@@ -682,7 +726,9 @@ async def cb_product(callback: CallbackQuery) -> None:
 # ─── Покупка ───────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("buy:"))
-async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_buy(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     product_id = int(callback.data.split(":")[1])
     product    = get_product(product_id)
 
@@ -698,7 +744,9 @@ async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("qty:"))
-async def cb_qty(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_qty(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     _, pid_s, qty_s = callback.data.split(":")
     product_id = int(pid_s)
     qty        = int(qty_s)
@@ -746,7 +794,9 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("pay:"))
-async def cb_pay(callback: CallbackQuery) -> None:
+async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
+    if not await require_subscription(bot, callback.from_user.id, callback):
+        return
     _, method, code = callback.data.split(":")
     order   = get_order(code)
     product = get_product(int(order["product_id"])) if order else None
