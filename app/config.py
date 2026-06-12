@@ -62,5 +62,5 @@ def load_settings() -> Settings:
         cryptobot_api_token=os.getenv("CRYPTOBOT_API_TOKEN", "").strip(),
         payment_check_interval=int(os.getenv("PAYMENT_CHECK_INTERVAL", "30")),
         channel_id=channel_id,
-        channel_username=os.getenv("CHANNEL_USERNAME", "Accel_Shop").strip(),
+        channel_username=os.getenv("CHANNEL_USERNAME", "accel_shop").strip(),
     )
