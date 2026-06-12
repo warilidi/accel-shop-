@@ -148,20 +148,91 @@ def init_db() -> None:
         seed_catalog(conn, DEFAULT_CATALOG)
 
     seed_extra_products(conn)
+    migrate_legacy_extra_subcategory(conn)
 
     conn.close()
 
 
 EXTRA_PRODUCTS = [
     # (category, subcategory, title, price_usd, product_type, stock)
-    ("Другие сервисы", "Другие сервисы", "NordVPN - Nord VPN", 5, "ACC", 5),
-    ("Другие сервисы", "Другие сервисы", "Canva - Canva Edu 12m", 3, "ACC", 5),
-    ("Другие сервисы", "Другие сервисы", "Canva - Canva Reseller Panel up to 500 members", 13, "ACC", 5),
-    ("Другие сервисы", "Другие сервисы", "Kiro - Kiro Pro 1m", 3.5, "ACC", 5),
-    ("Другие сервисы", "Другие сервисы", "LinkedIn - LinkedIn Premium Career 3m", 1, "ACC", 5),
-    ("Другие сервисы", "Другие сервисы", "Lovable - Lovable Pro 1m", 2, "ACC", 5),
-    ("Другие сервисы", "Другие сервисы", "Veo 3 - Veo 3 Ultra 25k Credits (Fw24h)", 2, "ACC", 5),
+    ("Другие сервисы", "NordVPN", "Nord VPN", 5, "ACC", 5),
+    ("Другие сервисы", "Canva", "Canva Edu 12m", 3, "ACC", 5),
+    ("Другие сервисы", "Canva", "Canva Reseller Panel up to 500 members", 13, "ACC", 5),
+    ("Другие сервисы", "Kiro", "Kiro Pro 1m", 3.5, "ACC", 5),
+    ("Другие сервисы", "LinkedIn", "LinkedIn Premium Career 3m", 1, "ACC", 5),
+    ("Другие сервисы", "Lovable", "Lovable Pro 1m", 2, "ACC", 5),
+    ("Другие сервисы", "Veo 3", "Veo 3 Ultra 25k Credits (Fw24h)", 2, "ACC", 5),
 ]
+
+# Миграция со старой вложенной подкатегории «Другие сервисы»
+LEGACY_EXTRA_MIGRATIONS = [
+    ("NordVPN - Nord VPN", "Другие сервисы", "NordVPN", "Nord VPN"),
+    ("Canva - Canva Edu 12m", "Другие сервисы", "Canva", "Canva Edu 12m"),
+    ("Canva - Canva Reseller Panel up to 500 members", "Другие сервисы", "Canva", "Canva Reseller Panel up to 500 members"),
+    ("Kiro - Kiro Pro 1m", "Другие сервисы", "Kiro", "Kiro Pro 1m"),
+    ("LinkedIn - LinkedIn Premium Career 3m", "Другие сервисы", "LinkedIn", "LinkedIn Premium Career 3m"),
+    ("Lovable - Lovable Pro 1m", "Другие сервисы", "Lovable", "Lovable Pro 1m"),
+    ("Veo 3 - Veo 3 Ultra 25k Credits (Fw24h)", "Другие сервисы", "Veo 3", "Veo 3 Ultra 25k Credits (Fw24h)"),
+]
+
+
+def _get_or_create_subcategory(cur: sqlite3.Cursor, category_id: int, subcategory_name: str) -> int:
+    cur.execute(
+        "SELECT id FROM subcategories WHERE category_id = ? AND LOWER(name) = LOWER(?)",
+        (category_id, subcategory_name),
+    )
+    sub = cur.fetchone()
+    if sub:
+        return int(sub["id"])
+    cur.execute(
+        "INSERT INTO subcategories(category_id, name) VALUES(?, ?)",
+        (category_id, subcategory_name),
+    )
+    return int(cur.lastrowid)
+
+
+def migrate_legacy_extra_subcategory(conn: sqlite3.Connection) -> None:
+    """Переносит товары из вложенной подкатегории «Другие сервисы» в отдельные разделы."""
+    cur = conn.cursor()
+    for old_title, category_name, new_sub_name, new_title in LEGACY_EXTRA_MIGRATIONS:
+        cur.execute("SELECT id FROM products WHERE title = ?", (old_title,))
+        product = cur.fetchone()
+        if not product:
+            continue
+
+        cur.execute(
+            "SELECT id FROM categories WHERE LOWER(name) LIKE LOWER(?)",
+            (f"%{category_name}%",),
+        )
+        category = cur.fetchone()
+        if not category:
+            continue
+
+        sub_id = _get_or_create_subcategory(cur, int(category["id"]), new_sub_name)
+        cur.execute(
+            "UPDATE products SET subcategory_id = ?, title = ? WHERE id = ?",
+            (sub_id, new_title, int(product["id"])),
+        )
+
+    cur.execute(
+        """
+        SELECT s.id FROM subcategories s
+        JOIN categories c ON c.id = s.category_id
+        WHERE LOWER(c.name) LIKE LOWER(?) AND LOWER(s.name) = LOWER(?)
+        """,
+        ("%Другие сервисы%", "Другие сервисы"),
+    )
+    legacy_sub = cur.fetchone()
+    if legacy_sub:
+        legacy_sub_id = int(legacy_sub["id"])
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM products WHERE subcategory_id = ?",
+            (legacy_sub_id,),
+        )
+        if int(cur.fetchone()["c"]) == 0:
+            cur.execute("DELETE FROM subcategories WHERE id = ?", (legacy_sub_id,))
+
+    conn.commit()
 
 
 def seed_extra_products(conn: sqlite3.Connection) -> None:
@@ -181,16 +252,12 @@ def seed_extra_products(conn: sqlite3.Connection) -> None:
             category_id = category["id"]
 
         cur.execute(
-            "SELECT id FROM subcategories WHERE category_id = ? AND LOWER(name) LIKE LOWER(?)",
-            (category_id, f"%{subcategory_name}%"),
+            "SELECT id FROM subcategories WHERE category_id = ? AND LOWER(name) = LOWER(?)",
+            (category_id, subcategory_name),
         )
         sub = cur.fetchone()
         if not sub:
-            cur.execute(
-                "INSERT INTO subcategories(category_id, name) VALUES(?, ?)",
-                (category_id, subcategory_name),
-            )
-            sub_id = cur.lastrowid
+            sub_id = _get_or_create_subcategory(cur, category_id, subcategory_name)
         else:
             sub_id = sub["id"]
 

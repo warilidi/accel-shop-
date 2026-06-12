@@ -182,6 +182,18 @@ DEFAULT_CATALOG = [
                 ],
             },
             {"name": "Steam", "products": [p("Steam 0.016$ : 1 rub", 0.016, "Пополнение")]},
+            {"name": "NordVPN", "products": [p("Nord VPN", 5, "ACC")]},
+            {
+                "name": "Canva",
+                "products": [
+                    p("Canva Edu 12m", 3, "ACC"),
+                    p("Canva Reseller Panel up to 500 members", 13, "ACC"),
+                ],
+            },
+            {"name": "Kiro", "products": [p("Kiro Pro 1m", 3.5, "ACC")]},
+            {"name": "LinkedIn", "products": [p("LinkedIn Premium Career 3m", 1, "ACC")]},
+            {"name": "Lovable", "products": [p("Lovable Pro 1m", 2, "ACC")]},
+            {"name": "Veo 3", "products": [p("Veo 3 Ultra 25k Credits (Fw24h)", 2, "ACC")]},
         ],
     },
 ]
