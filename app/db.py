@@ -146,7 +146,61 @@ def init_db() -> None:
     if cur.fetchone()["c"] == 0:
         seed_catalog(conn, DEFAULT_CATALOG)
 
+    seed_extra_products(conn)
+
     conn.close()
+
+
+EXTRA_PRODUCTS = [
+    # (category, subcategory, title, price_usd, product_type, stock)
+    ("Другие сервисы", "Другие сервисы", "NordVPN - Nord VPN", 5, "ACC", 5),
+    ("Другие сервисы", "Другие сервисы", "Canva - Canva Edu 12m", 3, "ACC", 5),
+    ("Другие сервисы", "Другие сервисы", "Canva - Canva Reseller Panel up to 500 members", 13, "ACC", 5),
+    ("Другие сервисы", "Другие сервисы", "Kiro - Kiro Pro 1m", 3.5, "ACC", 5),
+    ("Другие сервисы", "Другие сервисы", "LinkedIn - LinkedIn Premium Career 3m", 1, "ACC", 5),
+    ("Другие сервисы", "Другие сервисы", "Lovable - Lovable Pro 1m", 2, "ACC", 5),
+    ("Другие сервисы", "Другие сервисы", "Veo 3 - Veo 3 Ultra 25k Credits (Fw24h)", 2, "ACC", 5),
+]
+
+
+def seed_extra_products(conn: sqlite3.Connection) -> None:
+    """Idempotently ensure EXTRA_PRODUCTS exist (added once, won't duplicate on restart)."""
+    cur = conn.cursor()
+    for category_name, subcategory_name, title, price, ptype, stock in EXTRA_PRODUCTS:
+        cur.execute("SELECT id FROM products WHERE title = ?", (title,))
+        if cur.fetchone():
+            continue
+
+        cur.execute("SELECT id FROM categories WHERE LOWER(name) LIKE LOWER(?)", (f"%{category_name}%",))
+        category = cur.fetchone()
+        if not category:
+            cur.execute("INSERT INTO categories(name) VALUES(?)", (category_name,))
+            category_id = cur.lastrowid
+        else:
+            category_id = category["id"]
+
+        cur.execute(
+            "SELECT id FROM subcategories WHERE category_id = ? AND LOWER(name) LIKE LOWER(?)",
+            (category_id, f"%{subcategory_name}%"),
+        )
+        sub = cur.fetchone()
+        if not sub:
+            cur.execute(
+                "INSERT INTO subcategories(category_id, name) VALUES(?, ?)",
+                (category_id, subcategory_name),
+            )
+            sub_id = cur.lastrowid
+        else:
+            sub_id = sub["id"]
+
+        cur.execute(
+            """
+            INSERT INTO products(subcategory_id, title, product_type, price_usd, stock, payloads_json)
+            VALUES (?, ?, ?, ?, ?, '[]')
+            """,
+            (sub_id, title, ptype, price, stock),
+        )
+    conn.commit()
 
 
 def seed_catalog(conn: sqlite3.Connection, catalog: list[dict[str, Any]]) -> None:
