@@ -1066,9 +1066,13 @@ async def cmd_additem(message: Message, state: FSMContext) -> None:
     await state.set_state(AdminFlow.add_product_wait)
     await message.answer(
         "📦 Введите данные товара в формате:\n"
-        "<code>Категория | Подкатегория | Название | Цена$ | Тип | Остаток</code>\n\n"
-        "Пример:\n"
-        "<code>Другие сервисы | Telegram | Telegram Premium 3m | 7.5 | ACC | 5</code>"
+        "<code>Категория | Подкатегория | Название | Цена$ | Тип | Остаток | Ключи</code>\n\n"
+        "Поле «Ключи» необязательно — несколько ключей разделяйте символом <code>;</code>.\n"
+        "Если ключи указаны, остаток будет рассчитан автоматически по их количеству.\n\n"
+        "Пример без ключей:\n"
+        "<code>Другие сервисы | Telegram | Telegram Premium 3m | 7.5 | ACC | 5</code>\n\n"
+        "Пример с ключами:\n"
+        "<code>Другие сервисы | Telegram | Telegram Premium 3m | 7.5 | ACC | 0 | login1:pass1 ; login2:pass2</code>"
     )
 
 
@@ -1077,19 +1081,26 @@ async def state_add_product(message: Message, state: FSMContext) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
     parts = [p.strip() for p in (message.text or "").split("|")]
-    if len(parts) != 6:
-        await message.answer("Неверный формат. Нужно ровно 6 полей через |")
+    if len(parts) not in (6, 7):
+        await message.answer("Неверный формат. Нужно 6 или 7 полей через |")
         return
-    category, subcategory, title, price_s, ptype, stock_s = parts
+    category, subcategory, title, price_s, ptype, stock_s = parts[:6]
+    keys_s = parts[6] if len(parts) == 7 else ""
     try:
         price = float(price_s.replace(",", "."))
         stock = int(stock_s)
     except ValueError:
         await message.answer("Цена и остаток должны быть числами.")
         return
-    pid = add_custom_product(category, subcategory, title, price, ptype, stock)
+    payloads = [k.strip() for k in keys_s.split(";") if k.strip()] if keys_s else []
+    pid = add_custom_product(category, subcategory, title, price, ptype, stock, payloads)
     await state.clear()
-    await message.answer(f"✅ Товар добавлен.\n🆔 product_id = <code>{pid}</code>")
+    if payloads:
+        await message.answer(
+            f"✅ Товар добавлен.\n🆔 product_id = <code>{pid}</code>\n🔑 Ключей загружено: {len(payloads)}"
+        )
+    else:
+        await message.answer(f"✅ Товар добавлен.\n🆔 product_id = <code>{pid}</code>")
 
 
 @router.message(Command("editproduct"))
