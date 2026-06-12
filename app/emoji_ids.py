@@ -29,6 +29,7 @@ PRODUCT_TYPE_EMOJI = {
     "perplexity": ("perplexity", "🔍"),
     "grok":       ("grok", "🧠"),
     "gemini":     ("gemini", "✨"),
+    "google ai":  ("gemini", "✨"),
     "claude":     ("claude", "🤖"),
     "cursor":     ("cursor", "⌨️"),
     "suno":       ("suno", "🎵"),
@@ -128,7 +129,10 @@ def get_button_icon_id(product_title: str) -> str | None:
     for key, emoji_id in BUTTON_ICON_BY_TITLE:
         if key in title_lower:
             return emoji_id
-    for key, (emoji_key, _) in PRODUCT_TYPE_EMOJI.items():
+    # Длинные ключи первыми: «google ai» важнее «gmail» в «Old Gmail»
+    for key, (emoji_key, _) in sorted(
+        PRODUCT_TYPE_EMOJI.items(), key=lambda item: len(item[0]), reverse=True
+    ):
         if key in title_lower:
             return PREMIUM_EMOJI.get(emoji_key)
     return None

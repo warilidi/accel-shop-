@@ -212,15 +212,18 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
         if ptype and not title.startswith("["):
             title = f"[{ptype}] {title}"
         icon_id = get_button_icon_id(p["title"])
+        price_part = f" — ${fmt(p['price_usd'])}"
         if icon_id:
+            # icon_custom_emoji_id уже рисует иконку слева — не дублируем ✅ в тексте
+            btn_text = f"{title}{price_part}" if p["stock"] > 0 else f"❌ {title}{price_part}"
             kb.button(
-                text=f"{icon} {title} — ${fmt(p['price_usd'])}",
+                text=btn_text,
                 callback_data=f"prod:{p['id']}",
                 icon_custom_emoji_id=icon_id,
             )
         else:
             kb.button(
-                text=f"{icon} {title} — ${fmt(p['price_usd'])}",
+                text=f"{icon} {title}{price_part}",
                 callback_data=f"prod:{p['id']}",
             )
     kb.button(text=get_button_text("back"), callback_data="go:cats")
