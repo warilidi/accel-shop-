@@ -91,12 +91,37 @@ def get_product_emoji(product_name: str) -> tuple[str, str]:
 def get_product_emoji_html(product_name: str) -> str:
     """
     Возвращает готовый HTML-тег премиум-эмодзи для продукта
-    
+
     Аргументы:
         product_name: название товара
-    
+
     Возвращает:
         HTML-строка с премиум-эмодзи
     """
     emoji_key, fallback = get_product_emoji(product_name)
     return premium_emoji(emoji_key, fallback)
+
+
+# custom_emoji_id для иконок кнопок (icon_custom_emoji_id), по подстроке названия товара.
+# Порядок важен: проверяется сверху вниз, первое совпадение выигрывает.
+BUTTON_ICON_BY_TITLE = [
+    ("nordvpn",  "5239963889004732575"),
+    ("canva",    "5309754771102525647"),
+    ("kiro",     "5239963889004732575"),
+    ("linkedin", "5239963889004732575"),
+    ("lovable",  "5239963889004732575"),
+    ("veo 3",    "5206660927339924387"),
+    ("veo3",     "5206660927339924387"),
+]
+
+
+def get_button_icon_id(product_title: str) -> str | None:
+    """
+    Возвращает icon_custom_emoji_id для кнопки товара по названию,
+    либо None если совпадение не найдено.
+    """
+    title_lower = product_title.lower()
+    for key, emoji_id in BUTTON_ICON_BY_TITLE:
+        if key in title_lower:
+            return emoji_id
+    return None
