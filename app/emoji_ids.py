@@ -49,6 +49,12 @@ PREMIUM_EMOJI = {
     "windows":    "5420334850236246677",    # Виндоус
     "steam":      "5244814844112167852",    # Стим
     "adobe":      "5305721281415505693",    # Адоб
+    "nordvpn":    "5239963889004732575",
+    "canva":      "5309754771102525647",
+    "kiro":       "5239963889004732575",
+    "linkedin":   "5239963889004732575",
+    "lovable":    "5239963889004732575",
+    "veo3":       "5206660927339924387",
 }
 
 # Маппинг названий товаров/типов на ключи эмодзи
@@ -165,6 +171,12 @@ SUBCATEGORY_ICON = {
     "apple":        "apple",
     "windows":      "windows",
     "steam":        "steam",
+    "nordvpn":      "nordvpn",
+    "canva":        "canva",
+    "kiro":         "kiro",
+    "linkedin":     "linkedin",
+    "lovable":      "lovable",
+    "veo 3":        "veo3",
 }
 
 
