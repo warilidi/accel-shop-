@@ -27,6 +27,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
 from app.cryptobot import check_invoice_status, create_invoice
+from app.emoji_ids import get_button_icon_id
 from app.db import (
     add_balance,
     add_custom_product,
@@ -210,10 +211,18 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
         # Добавляем [тип] если его ещё нет в названии
         if ptype and not title.startswith("["):
             title = f"[{ptype}] {title}"
-        kb.button(
-            text=f"{icon} {title} — ${fmt(p['price_usd'])}",
-            callback_data=f"prod:{p['id']}",
-        )
+        icon_id = get_button_icon_id(p["title"])
+        if icon_id:
+            kb.button(
+                text=f"{icon} {title} — ${fmt(p['price_usd'])}",
+                callback_data=f"prod:{p['id']}",
+                icon_custom_emoji_id=icon_id,
+            )
+        else:
+            kb.button(
+                text=f"{icon} {title} — ${fmt(p['price_usd'])}",
+                callback_data=f"prod:{p['id']}",
+            )
     kb.button(text=get_button_text("back"), callback_data="go:cats")
     kb.adjust(1)
     return kb.as_markup()
