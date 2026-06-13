@@ -191,6 +191,14 @@ def get_subcategory_emoji_key(subcategory_name: str) -> str | None:
     return None
 
 
+def get_subcategory_icon_id(subcategory_name: str) -> str | None:
+    """icon_custom_emoji_id для кнопки подкатегории."""
+    emoji_key = get_subcategory_emoji_key(subcategory_name)
+    if emoji_key:
+        return PREMIUM_EMOJI.get(emoji_key)
+    return None
+
+
 def get_subcategory_emoji_html(subcategory_name: str) -> str:
     """HTML с премиум-эмодзи для заголовка подкатегории."""
     emoji_key = get_subcategory_emoji_key(subcategory_name)
