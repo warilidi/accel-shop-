@@ -279,6 +279,9 @@ def get_subcategory_visual_key(subcategory_name: str) -> str | None:
 # Все ключи картинок сервисов для /setimage и /images
 SERVICE_VISUAL_KEYS = sorted(set(SUBCATEGORY_VISUAL_KEY_EXACT.values()))
 
+# Ключи картинок экранов главного меню
+SCREEN_VISUAL_KEYS = ["start", "categories", "rules", "balance", "profile"]
+
 
 def get_category_icon_id(category_name: str) -> str | None:
     """icon_custom_emoji_id для кнопки категории."""

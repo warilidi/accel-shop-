@@ -34,6 +34,7 @@ from app.emoji_ids import (
     get_menu_button_icon_id,
     get_subcategory_icon_id,
     get_subcategory_visual_key,
+    SCREEN_VISUAL_KEYS,
     SERVICE_VISUAL_KEYS,
     strip_unicode_emoji,
 )
@@ -91,7 +92,7 @@ SHOP_FOOTER = "— Админ/Связь/Опт — @Dolzu"
 VISUALS: dict[str, str] = {}
 
 # Все доступные ключи для картинок
-VISUAL_KEYS = ["start", "categories", "rules", *SERVICE_VISUAL_KEYS]
+VISUAL_KEYS = [*SCREEN_VISUAL_KEYS, *SERVICE_VISUAL_KEYS]
 
 
 # ─── FSM-состояния ─────────────────────────────────────────────────────────
@@ -578,7 +579,8 @@ async def cb_balance(callback: CallbackQuery, bot: Bot) -> None:
         f"💰 {fmt(balance_usd)} $ / {fmt(balance_rub)} ₽\n\n"
         "Используйте баланс для быстрых покупок без повторной оплаты."
     )
-    await safe_edit(callback, text, balance_kb())
+    photo = get_image("balance")
+    await replace_screen(callback, text, balance_kb(), photo=photo or None)
     await callback.answer()
 
 
@@ -670,7 +672,8 @@ async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
     )
     kb = InlineKeyboardBuilder()
     kb.button(text=get_button_text("back"), callback_data="go:main")
-    await safe_edit(callback, text, kb.as_markup())
+    photo = get_image("profile")
+    await replace_screen(callback, text, kb.as_markup(), photo=photo or None)
     await callback.answer()
 
 
