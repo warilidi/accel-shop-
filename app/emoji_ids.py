@@ -159,48 +159,6 @@ def get_product_emoji_html(product_name: str) -> str:
     return premium_emoji(emoji_key, fallback)
 
 
-# custom_emoji_id для иконок кнопок (icon_custom_emoji_id), по подстроке названия товара.
-# Порядок важен: проверяется сверху вниз, первое совпадение выигрывает.
-BUTTON_ICON_BY_TITLE = [
-    ("nordvpn",  "5239963889004732575"),
-    ("canva",    "5309754771102525647"),
-    ("kiro",     "5239963889004732575"),
-    ("linkedin", "5239963889004732575"),
-    ("lovable",  "5239963889004732575"),
-    ("veo 3",    "5206660927339924387"),
-    ("veo3",     "5206660927339924387"),
-    ("notion",   "5239963889004732575"),
-]
-
-# Иконка по названию подкатегории, если в title товара нет совпадения
-SUBCATEGORY_ICON = {
-    "chatgpt":      "chatgpt",
-    "perplexity":   "perplexity",
-    "grok":         "grok",
-    "gemini":       "gemini",
-    "claude":       "claude",
-    "cursor":       "cursor",
-    "suno ai":      "suno",
-    "spotify":      "spotify",
-    "netflix":      "netflix",
-    "discord":      "discord",
-    "почты gmail":  "gmail",
-    "youtube":      "youtube",
-    "picsart":      "pixeart",
-    "amazon prime": "amazon",
-    "capcut":       "capcut",
-    "apple":        "apple",
-    "windows":      "windows",
-    "steam":        "steam",
-    "nordvpn":      "nordvpn",
-    "canva":        "canva",
-    "kiro":         "kiro",
-    "linkedin":     "linkedin",
-    "lovable":      "lovable",
-    "veo 3":        "veo3",
-    "notion":       "notion",
-}
-
 # Точное совпадение названия подкатегории (приоритет над подстрокой)
 SUBCATEGORY_ICON_EXACT = {
     "chatgpt":    "chatgpt",
@@ -230,6 +188,67 @@ SUBCATEGORY_ICON_EXACT = {
     "notion":     "notion",
 }
 
+# Ключи картинок (/setimage) для каждой подкатегории
+SUBCATEGORY_VISUAL_KEY_EXACT = {
+    "chatgpt":      "chatgpt",
+    "perplexity":   "perplexity",
+    "grok":         "grok",
+    "gemini":       "gemini",
+    "claude":       "claude",
+    "cursor":       "cursor",
+    "suno ai":      "suno",
+    "spotify":      "spotify",
+    "netflix":      "netflix",
+    "discord":      "discord",
+    "почты gmail":  "gmail",
+    "youtube":      "youtube",
+    "picsart":      "picsart",
+    "amazon prime": "amazon",
+    "capcut":       "capcut",
+    "apple":        "apple",
+    "windows":      "windows",
+    "steam":        "steam",
+    "nordvpn":      "nordvpn",
+    "canva":        "canva",
+    "kiro":         "kiro",
+    "linkedin":     "linkedin",
+    "lovable":      "lovable",
+    "veo 3":        "veo3",
+    "notion":       "notion",
+}
+
+# Алиасы в названии товара → ключ PREMIUM_EMOJI
+_TITLE_ICON_ALIASES = [
+    ("google ai",    "gemini"),
+    ("amazon prime", "amazon"),
+    ("veo 3",        "veo3"),
+    ("suno ai",      "suno"),
+    ("picsart",      "pixeart"),
+    ("почты gmail",  "gmail"),
+    ("nord vpn",     "nordvpn"),
+    ("adobe",        "adobe"),
+]
+
+
+def _build_button_icon_by_title() -> list[tuple[str, str]]:
+    """Все сервисы с явной привязкой icon_custom_emoji_id по подстроке в названии."""
+    seen: set[str] = set()
+    items: list[tuple[str, str]] = []
+    for alias, emoji_key in sorted(_TITLE_ICON_ALIASES, key=lambda x: len(x[0]), reverse=True):
+        emoji_id = PREMIUM_EMOJI.get(emoji_key)
+        if emoji_id and alias not in seen:
+            items.append((alias, emoji_id))
+            seen.add(alias)
+    for emoji_key in sorted(PREMIUM_EMOJI.keys(), key=len, reverse=True):
+        emoji_id = PREMIUM_EMOJI[emoji_key]
+        if emoji_key not in seen:
+            items.append((emoji_key, emoji_id))
+            seen.add(emoji_key)
+    return items
+
+
+BUTTON_ICON_BY_TITLE = _build_button_icon_by_title()
+
 
 def get_subcategory_emoji_key(subcategory_name: str) -> str | None:
     """Ключ PREMIUM_EMOJI по названию подкатегории."""
@@ -237,11 +256,28 @@ def get_subcategory_emoji_key(subcategory_name: str) -> str | None:
     if sub_lower in SUBCATEGORY_ICON_EXACT:
         return SUBCATEGORY_ICON_EXACT[sub_lower]
     for key, emoji_key in sorted(
-        SUBCATEGORY_ICON.items(), key=lambda item: len(item[0]), reverse=True
+        SUBCATEGORY_ICON_EXACT.items(), key=lambda item: len(item[0]), reverse=True
     ):
         if key in sub_lower:
             return emoji_key
     return None
+
+
+def get_subcategory_visual_key(subcategory_name: str) -> str | None:
+    """Ключ картинки (/setimage) по названию подкатегории."""
+    sub_lower = strip_unicode_emoji(subcategory_name).lower().strip()
+    if sub_lower in SUBCATEGORY_VISUAL_KEY_EXACT:
+        return SUBCATEGORY_VISUAL_KEY_EXACT[sub_lower]
+    for key, visual_key in sorted(
+        SUBCATEGORY_VISUAL_KEY_EXACT.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        if key in sub_lower:
+            return visual_key
+    return None
+
+
+# Все ключи картинок сервисов для /setimage и /images
+SERVICE_VISUAL_KEYS = sorted(set(SUBCATEGORY_VISUAL_KEY_EXACT.values()))
 
 
 def get_category_icon_id(category_name: str) -> str | None:

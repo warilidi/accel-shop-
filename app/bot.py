@@ -33,6 +33,8 @@ from app.emoji_ids import (
     get_category_icon_id,
     get_menu_button_icon_id,
     get_subcategory_icon_id,
+    get_subcategory_visual_key,
+    SERVICE_VISUAL_KEYS,
     strip_unicode_emoji,
 )
 from app.db import (
@@ -89,34 +91,7 @@ SHOP_FOOTER = "— Админ/Связь/Опт — @Dolzu"
 VISUALS: dict[str, str] = {}
 
 # Все доступные ключи для картинок
-VISUAL_KEYS = [
-    "start", "categories", "rules",
-    "chatgpt", "perplexity", "grok", "gemini", "cursor", "claude",
-    "spotify", "windows", "discord", "apple", "amazon",
-    "capcut", "picsart", "youtube", "gmail",
-]
-
-# Маппинг названия подкатегории → ключ картинки
-SERVICE_IMAGE_MAP = {
-    "chatgpt":     "chatgpt",
-    "perplexity":  "perplexity",
-    "grok":        "grok",
-    "gemini":      "gemini",
-    "cursor":      "cursor",
-    "claude":      "claude",
-    "suno ai":     "chatgpt",
-    "spotify":     "spotify",
-    "windows":     "windows",
-    "discord":     "discord",
-    "apple":       "apple",
-    "amazon prime": "amazon",
-    "capcut":      "capcut",
-    "picsart":     "picsart",
-    "youtube":     "youtube",
-    "почты gmail": "gmail",
-    "netflix":     "categories",
-    "steam":       "categories",
-}
+VISUAL_KEYS = ["start", "categories", "rules", *SERVICE_VISUAL_KEYS]
 
 
 # ─── FSM-состояния ─────────────────────────────────────────────────────────
@@ -148,7 +123,7 @@ def get_image(key: str) -> str:
 
 def get_service_image(subcategory_name: str) -> str:
     """Возвращает картинку для конкретного сервиса по его названию."""
-    key = SERVICE_IMAGE_MAP.get((subcategory_name or "").strip().lower(), "")
+    key = get_subcategory_visual_key(subcategory_name)
     return get_image(key) if key else ""
 
 
