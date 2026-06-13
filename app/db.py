@@ -140,6 +140,17 @@ def init_db() -> None:
         cur.execute("ALTER TABLE orders ADD COLUMN invoice_id INTEGER NOT NULL DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_settings (
+                tg_user_id INTEGER PRIMARY KEY,
+                lang TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
 
@@ -701,7 +712,7 @@ def set_balance(tg_user_id: int, amount_usd: float, amount_rub: float) -> bool:
 
 # ─── Button texts functions ─────────────────────────────────────────────────
 
-# Default button texts
+# Default button texts (Russian; English in app.i18n)
 DEFAULT_BUTTON_TEXTS = {
     "catalog": "Товары и услуги",
     "balance": "Баланс",
@@ -723,8 +734,33 @@ DEFAULT_BUTTON_TEXTS = {
 }
 
 
-def get_button_text(button_id: str) -> str:
-    """Get button text from DB or use default."""
+def get_user_lang(tg_user_id: int) -> str | None:
+    """Returns user language code ('ru' / 'en') or None if not chosen yet."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT lang FROM user_settings WHERE tg_user_id = ?",
+            (tg_user_id,),
+        ).fetchone()
+        if row and row["lang"]:
+            return str(row["lang"])
+    return None
+
+
+def set_user_lang(tg_user_id: int, lang: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_settings(tg_user_id, lang)
+            VALUES(?, ?)
+            ON CONFLICT(tg_user_id) DO UPDATE SET lang = excluded.lang
+            """,
+            (tg_user_id, lang),
+        )
+        conn.commit()
+
+
+def get_button_text(button_id: str, lang: str | None = None) -> str:
+    """Get button text from DB or use localized default."""
     with get_conn() as conn:
         row = conn.execute(
             "SELECT text FROM button_texts WHERE button_id = ?",
@@ -732,7 +768,9 @@ def get_button_text(button_id: str) -> str:
         ).fetchone()
         if row:
             return strip_unicode_emoji(row["text"])
-    return strip_unicode_emoji(DEFAULT_BUTTON_TEXTS.get(button_id, button_id))
+    from app.i18n import button_text
+
+    return strip_unicode_emoji(button_text(button_id, lang))
 
 
 def set_button_text(button_id: str, text: str) -> bool:
