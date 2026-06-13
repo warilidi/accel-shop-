@@ -33,8 +33,10 @@ from app.emoji_ids import (
     get_menu_button_icon_id,
     get_subcategory_icon_id,
     get_subcategory_visual_key,
-    all_visual_keys,
     localized_visual_key,
+    normalize_visual_input_key,
+    ru_visual_keys,
+    en_visual_keys,
     strip_unicode_emoji,
 )
 from app.i18n import normalize_lang, product_type_hint, t, translate_category
@@ -90,8 +92,9 @@ settings = load_settings()
 # Картинки по умолчанию (можно переопределить через /setimage)
 VISUALS: dict[str, str] = {}
 
-# Все доступные ключи для картинок (ru + en)
-VISUAL_KEYS = all_visual_keys()
+# Ключи картинок для админ-команд
+VISUAL_KEYS_RU = ru_visual_keys()
+VISUAL_KEYS_EN = en_visual_keys()
 
 
 # ─── FSM-состояния ─────────────────────────────────────────────────────────
@@ -453,8 +456,10 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="setdesc",     description="Изменить описание товара"),
         BotCommand(command="setdelivery", description="Текст инструкции после оплаты"),
         BotCommand(command="setstock",    description="Установить остаток"),
-        BotCommand(command="setimage",    description="Установить картинку экрана"),
-        BotCommand(command="images",      description="Статус всех картинок"),
+        BotCommand(command="setimage",    description="Картинка RU (русский)"),
+        BotCommand(command="setimage_en", description="Картинка EN (английский)"),
+        BotCommand(command="images",      description="Статус картинок RU"),
+        BotCommand(command="images_en",   description="Статус картинок EN"),
         BotCommand(command="getfileid",   description="Получить file_id фото"),
         BotCommand(command="getfield",    description="Алиас getfileid"),
         BotCommand(command="order",       description="Проверить заказ по коду"),
@@ -1055,8 +1060,7 @@ def _format_media_id_reply(message: Message) -> str | None:
     if message.photo:
         file_id = message.photo[-1].file_id
         lines.append(f"Пример RU: <code>/setimage start {file_id}</code>")
-        lines.append(f"Пример EN: <code>/setimage start_en {file_id}</code>")
-        lines.append("Суффикс <code>_en</code> — картинка для английского интерфейса.")
+        lines.append(f"Пример EN: <code>/setimage_en start {file_id}</code>")
 
     return "\n\n".join(lines)
 
@@ -1073,9 +1077,9 @@ async def cmd_getfileid(message: Message) -> None:
         "📸 Отправьте фото, файл или премиум-эмодзи вместе с командой — "
         "или следующим сообщением.\n"
         "Я верну <code>file_id</code> или <code>custom_emoji_id</code>.\n\n"
-        "Затем: <code>/setimage ключ file_id</code>\n"
-        "RU: <code>start</code>, <code>categories</code>, …\n"
-        "EN: <code>start_en</code>, <code>categories_en</code>, …"
+        "Затем:\n"
+        "RU: <code>/setimage ключ file_id</code>\n"
+        "EN: <code>/setimage_en ключ file_id</code>"
     )
 
 
@@ -1092,32 +1096,65 @@ async def handle_photo(message: Message, state: FSMContext) -> None:
 
 # ─── Картинки ──────────────────────────────────────────────────────────
 
-@router.message(Command("setimage"))
-async def cmd_setimage(message: Message) -> None:
+def _format_visual_keys(keys: list[str]) -> str:
+    return ", ".join(f"<code>{k}</code>" for k in keys)
+
+
+async def _cmd_set_visual(message: Message, lang: str) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
     parts = (message.text or "").split(maxsplit=2)
+    cmd = "/setimage_en" if lang == "en" else "/setimage"
+    allowed = VISUAL_KEYS_RU
     if len(parts) != 3:
-        await message.answer(f"Формат: /setimage <ключ> <file_id>\nКлючи: {', '.join(VISUAL_KEYS)}")
+        await message.answer(
+            f"Формат: {cmd} <ключ> <file_id>\n"
+            f"Ключи: {_format_visual_keys(allowed)}"
+        )
         return
-    key, value = parts[1].lower(), parts[2].strip()
-    if key not in VISUAL_KEYS:
-        await message.answer(f"Неизвестный ключ. Доступные: {', '.join(VISUAL_KEYS)}")
+    storage_key = normalize_visual_input_key(parts[1], lang)
+    if not storage_key:
+        await message.answer(
+            f"Неизвестный ключ. Доступные: {_format_visual_keys(allowed)}"
+        )
         return
-    set_visual(key, value)
-    await message.answer(f"✅ Картинка для <b>{key}</b> обновлена.")
+    set_visual(storage_key, parts[2].strip())
+    label = "EN" if lang == "en" else "RU"
+    await message.answer(f"✅ Картинка [{label}] <b>{storage_key}</b> обновлена.")
+
+
+@router.message(Command("setimage"))
+async def cmd_setimage(message: Message) -> None:
+    await _cmd_set_visual(message, "ru")
+
+
+@router.message(Command("setimage_en"))
+async def cmd_setimage_en(message: Message) -> None:
+    await _cmd_set_visual(message, "en")
+
+
+async def _cmd_list_visuals(message: Message, lang: str) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    saved = {r["key"]: r["value"] for r in list_visuals()}
+    keys = VISUAL_KEYS_EN if lang == "en" else VISUAL_KEYS_RU
+    label = "EN" if lang == "en" else "RU"
+    lines = [f"🖼 <b>Картинки [{label}]:</b>"]
+    for key in keys:
+        has = bool(saved.get(key) or VISUALS.get(key))
+        display = key.removesuffix("_en") if lang == "en" else key
+        lines.append(f"{'✅' if has else '❌'} {display}")
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("images"))
 async def cmd_images(message: Message) -> None:
-    if message.from_user.id not in settings.admin_ids:
-        return
-    saved = {r["key"]: r["value"] for r in list_visuals()}
-    lines = []
-    for key in VISUAL_KEYS:
-        has = bool(saved.get(key) or VISUALS.get(key))
-        lines.append(f"{'✅' if has else '❌'} {key}")
-    await message.answer("🖼 <b>Картинки:</b>\n" + "\n".join(lines))
+    await _cmd_list_visuals(message, "ru")
+
+
+@router.message(Command("images_en"))
+async def cmd_images_en(message: Message) -> None:
+    await _cmd_list_visuals(message, "en")
 
 
 # ─── Управление товарами ──────────────────────────────────────────────
@@ -1736,8 +1773,10 @@ async def cmd_admin(message: Message) -> None:
 
         "🖼 <b>Картинки</b>\n"
         "<b>/getfileid</b> или <b>/getfield</b> — file_id / custom_emoji_id картинки.\n"
-        "<b>/setimage</b> <code>ключ file_id</code> — установить картинку.\n"
-        "<b>/images</b> — статус всех картинок.\n\n"
+        "<b>/setimage</b> <code>ключ file_id</code> — картинка RU.\n"
+        "<b>/setimage_en</b> <code>ключ file_id</code> — картинка EN.\n"
+        "<b>/images</b> — статус картинок RU.\n"
+        "<b>/images_en</b> — статус картинок EN.\n\n"
 
         "💳 <b>Баланс</b>\n"
         "<b>/setbalance</b> — установить баланс пользователю.\n\n"
