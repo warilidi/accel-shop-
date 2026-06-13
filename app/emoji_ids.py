@@ -55,6 +55,17 @@ PREMIUM_EMOJI = {
     "linkedin":   "5239963889004732575",
     "lovable":    "5239963889004732575",
     "veo3":       "5206660927339924387",
+    "notion":     "5239963889004732575",
+}
+
+# icon_custom_emoji_id для кнопок главного меню
+MENU_BUTTON_ICONS = {
+    "catalog":   "5370983124794625878",
+    "balance":   "5373032434080175696",
+    "wholesale": "5373162670373491228",
+    "help":      "5370596461773870097",
+    "profile":   "5373063868945814451",
+    "rules":     "5373181929006848898",
 }
 
 # Маппинг названий товаров/типов на ключи эмодзи
@@ -81,6 +92,7 @@ PRODUCT_TYPE_EMOJI = {
     "windows":    ("windows", "🪟"),
     "steam":      ("steam", "🎮"),
     "adobe":      ("adobe", "📐"),
+    "notion":     ("notion", "📝"),
 }
 
 
@@ -149,6 +161,7 @@ BUTTON_ICON_BY_TITLE = [
     ("lovable",  "5239963889004732575"),
     ("veo 3",    "5206660927339924387"),
     ("veo3",     "5206660927339924387"),
+    ("notion",   "5239963889004732575"),
 ]
 
 # Иконка по названию подкатегории, если в title товара нет совпадения
@@ -177,18 +190,55 @@ SUBCATEGORY_ICON = {
     "linkedin":     "linkedin",
     "lovable":      "lovable",
     "veo 3":        "veo3",
+    "notion":       "notion",
+}
+
+# Точное совпадение названия подкатегории (приоритет над подстрокой)
+SUBCATEGORY_ICON_EXACT = {
+    "chatgpt":    "chatgpt",
+    "perplexity": "perplexity",
+    "grok":       "grok",
+    "gemini":     "gemini",
+    "claude":     "claude",
+    "cursor":     "cursor",
+    "suno ai":    "suno",
+    "spotify":    "spotify",
+    "netflix":    "netflix",
+    "discord":    "discord",
+    "почты gmail": "gmail",
+    "youtube":    "youtube",
+    "picsart":    "pixeart",
+    "amazon prime": "amazon",
+    "capcut":     "capcut",
+    "apple":      "apple",
+    "windows":    "windows",
+    "steam":      "steam",
+    "nordvpn":    "nordvpn",
+    "canva":      "canva",
+    "kiro":       "kiro",
+    "linkedin":   "linkedin",
+    "lovable":    "lovable",
+    "veo 3":      "veo3",
+    "notion":     "notion",
 }
 
 
 def get_subcategory_emoji_key(subcategory_name: str) -> str | None:
     """Ключ PREMIUM_EMOJI по названию подкатегории."""
-    sub_lower = (subcategory_name or "").lower()
+    sub_lower = strip_unicode_emoji(subcategory_name).lower().strip()
+    if sub_lower in SUBCATEGORY_ICON_EXACT:
+        return SUBCATEGORY_ICON_EXACT[sub_lower]
     for key, emoji_key in sorted(
         SUBCATEGORY_ICON.items(), key=lambda item: len(item[0]), reverse=True
     ):
         if key in sub_lower:
             return emoji_key
     return None
+
+
+def get_menu_button_icon_id(button_id: str) -> str | None:
+    """icon_custom_emoji_id для кнопки главного меню."""
+    return MENU_BUTTON_ICONS.get(button_id)
 
 
 def get_subcategory_icon_id(subcategory_name: str) -> str | None:

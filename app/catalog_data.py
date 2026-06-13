@@ -194,6 +194,7 @@ DEFAULT_CATALOG = [
             {"name": "LinkedIn", "products": [p("LinkedIn Premium Career 3m", 1, "ACC")]},
             {"name": "Lovable", "products": [p("Lovable Pro 1m", 2, "ACC")]},
             {"name": "Veo 3", "products": [p("Veo 3 Ultra 25k Credits (Fw24h)", 2, "ACC")]},
+            {"name": "Notion", "products": [p("Notion Business 3m (Link)", 4, "Link")]},
         ],
     },
 ]
