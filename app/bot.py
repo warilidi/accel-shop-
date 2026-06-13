@@ -546,7 +546,8 @@ async def cb_check_subscription(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data == "go:main")
 async def cb_go_main(callback: CallbackQuery) -> None:
-    await replace_screen(callback, "🏠 Главное меню:", main_kb())
+    photo = get_image("start")
+    await replace_screen(callback, "🏠 Главное меню:", main_kb(), photo=photo or None)
     await callback.answer()
 
 
@@ -564,7 +565,8 @@ async def cb_catalog(callback: CallbackQuery, bot: Bot) -> None:
 async def cb_go_cats(callback: CallbackQuery, bot: Bot) -> None:
     if not await require_subscription(bot, callback.from_user.id, callback):
         return
-    await replace_screen(callback, "📂 Выберите раздел:", categories_kb())
+    photo = get_image("categories")
+    await replace_screen(callback, "📂 Выберите раздел:", categories_kb(), photo=photo or None)
     await callback.answer()
 
 
@@ -635,10 +637,7 @@ async def cb_rules(callback: CallbackQuery, bot: Bot) -> None:
         "Перед использованием магазина ознакомьтесь с документами:"
     )
     photo = get_image("rules")
-    if photo:
-        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=rules_kb())
-    else:
-        await callback.message.answer(text, reply_markup=rules_kb())
+    await replace_screen(callback, text, rules_kb(), photo=photo or None)
     await callback.answer()
 
 
