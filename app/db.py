@@ -162,6 +162,7 @@ EXTRA_PRODUCTS = [
     ("Другие сервисы", "LinkedIn", "LinkedIn Premium Career 3m", 1, "ACC", 5),
     ("Другие сервисы", "Lovable", "Lovable Pro 1m", 2, "ACC", 5),
     ("Другие сервисы", "Veo 3", "Veo 3 Ultra 25k Credits (Fw24h)", 2, "ACC", 5),
+    ("Другие сервисы", "Notion", "Notion Business 3m (Link)", 4, "Link", 5),
 ]
 
 # Миграция со старой вложенной подкатегории «Другие сервисы»

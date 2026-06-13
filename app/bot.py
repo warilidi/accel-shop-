@@ -30,6 +30,7 @@ from app.cryptobot import check_invoice_status, create_invoice
 from app.emoji_ids import (
     format_subcategory_header,
     get_button_icon_id,
+    get_menu_button_icon_id,
     get_subcategory_icon_id,
     strip_unicode_emoji,
 )
@@ -166,14 +167,26 @@ def normalize_link(value: str, fallback: str) -> str:
 
 # ─── Клавиатуры ───────────────────────────────────────────────────────────
 
+def _icon_button(
+    kb: InlineKeyboardBuilder,
+    text: str,
+    icon_id: str | None = None,
+    **kwargs,
+) -> None:
+    if icon_id:
+        kb.button(text=text, icon_custom_emoji_id=icon_id, **kwargs)
+    else:
+        kb.button(text=text, **kwargs)
+
+
 def main_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("catalog"),   callback_data="menu:catalog")
-    kb.button(text=get_button_text("balance"),   callback_data="menu:balance")
-    kb.button(text=get_button_text("wholesale"), url=normalize_link(settings.wholesale_link, "https://t.me/Dolzu"))
-    kb.button(text=get_button_text("help"),      url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
-    kb.button(text=get_button_text("profile"),   callback_data="menu:profile")
-    kb.button(text=get_button_text("rules"),     callback_data="menu:rules")
+    _icon_button(kb, get_button_text("catalog"),   get_menu_button_icon_id("catalog"),   callback_data="menu:catalog")
+    _icon_button(kb, get_button_text("balance"),   get_menu_button_icon_id("balance"),   callback_data="menu:balance")
+    _icon_button(kb, get_button_text("wholesale"), get_menu_button_icon_id("wholesale"), url=normalize_link(settings.wholesale_link, "https://t.me/Dolzu"))
+    _icon_button(kb, get_button_text("help"),      get_menu_button_icon_id("help"),      url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
+    _icon_button(kb, get_button_text("profile"),   get_menu_button_icon_id("profile"),   callback_data="menu:profile")
+    _icon_button(kb, get_button_text("rules"),     get_menu_button_icon_id("rules"),     callback_data="menu:rules")
     kb.adjust(1, 1, 2, 2)
     return kb.as_markup()
 
@@ -203,14 +216,7 @@ def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
     for sub in list_subcategories(category_id):
         name = strip_unicode_emoji(sub["name"])
         icon_id = get_subcategory_icon_id(sub["name"])
-        if icon_id:
-            kb.button(
-                text=name,
-                callback_data=f"sub:{sub['id']}",
-                icon_custom_emoji_id=icon_id,
-            )
-        else:
-            kb.button(text=name, callback_data=f"sub:{sub['id']}")
+        _icon_button(kb, name, icon_id, callback_data=f"sub:{sub['id']}")
     kb.button(text=get_button_text("back"), callback_data="menu:catalog")
     kb.adjust(1)
     return kb.as_markup()
@@ -229,17 +235,7 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
         stock_note = "" if p["stock"] > 0 else " · нет в наличии"
         btn_text = f"{title}{price_part}{stock_note}"
         icon_id = get_button_icon_id(p["title"], sub_name)
-        if icon_id:
-            kb.button(
-                text=btn_text,
-                callback_data=f"prod:{p['id']}",
-                icon_custom_emoji_id=icon_id,
-            )
-        else:
-            kb.button(
-                text=btn_text,
-                callback_data=f"prod:{p['id']}",
-            )
+        _icon_button(kb, btn_text, icon_id, callback_data=f"prod:{p['id']}")
     kb.button(text=get_button_text("back"), callback_data="go:cats")
     kb.adjust(1)
     return kb.as_markup()
