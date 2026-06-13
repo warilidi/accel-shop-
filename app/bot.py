@@ -33,11 +33,11 @@ from app.emoji_ids import (
     get_menu_button_icon_id,
     get_subcategory_icon_id,
     get_subcategory_visual_key,
-    SCREEN_VISUAL_KEYS,
-    SERVICE_VISUAL_KEYS,
+    all_visual_keys,
+    localized_visual_key,
     strip_unicode_emoji,
 )
-from app.i18n import normalize_lang, product_type_hint, t
+from app.i18n import normalize_lang, product_type_hint, t, translate_category
 from app.db import (
     add_balance,
     add_custom_product,
@@ -90,8 +90,8 @@ settings = load_settings()
 # Картинки по умолчанию (можно переопределить через /setimage)
 VISUALS: dict[str, str] = {}
 
-# Все доступные ключи для картинок
-VISUAL_KEYS = [*SCREEN_VISUAL_KEYS, *SERVICE_VISUAL_KEYS]
+# Все доступные ключи для картинок (ru + en)
+VISUAL_KEYS = all_visual_keys()
 
 
 # ─── FSM-состояния ─────────────────────────────────────────────────────────
@@ -135,11 +135,11 @@ async def prompt_language(message: Message) -> None:
 
 
 async def show_start_screen_message(message: Message, lang: str) -> None:
-    await send_with_photo(message, t("start.text", lang), main_kb(lang), get_image("start"))
+    await send_with_photo(message, t("start.text", lang), main_kb(lang), get_image("start", lang))
 
 
 async def show_start_screen_callback(callback: CallbackQuery, lang: str) -> None:
-    photo = get_image("start")
+    photo = get_image("start", lang)
     await replace_screen(
         callback,
         t("start.text", lang),
@@ -156,15 +156,20 @@ def fmt(v: float) -> str:
     return s.replace(".", ",")
 
 
-def get_image(key: str) -> str:
-    """Возвращает картинку из БД, иначе из дефолтного словаря."""
+def get_image(key: str, lang: str | None = None) -> str:
+    """Возвращает картинку из БД по языку (start / start_en), с fallback на ru."""
+    if lang:
+        localized = localized_visual_key(key, lang)
+        value = get_visual(localized) or VISUALS.get(localized, "")
+        if value:
+            return value
     return get_visual(key) or VISUALS.get(key, "")
 
 
-def get_service_image(subcategory_name: str) -> str:
+def get_service_image(subcategory_name: str, lang: str | None = None) -> str:
     """Возвращает картинку для конкретного сервиса по его названию."""
     key = get_subcategory_visual_key(subcategory_name)
-    return get_image(key) if key else ""
+    return get_image(key, lang) if key else ""
 
 
 def normalize_link(value: str, fallback: str) -> str:
@@ -221,7 +226,7 @@ def rules_kb(lang: str) -> InlineKeyboardMarkup:
 def categories_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for cat in list_categories():
-        name = strip_unicode_emoji(cat["name"])
+        name = translate_category(strip_unicode_emoji(cat["name"]), lang)
         icon_id = get_category_icon_id(cat["name"])
         _icon_button(kb, name, icon_id, callback_data=f"cat:{cat['id']}")
     kb.button(text=get_button_text("back", lang), callback_data="go:main")
@@ -575,7 +580,7 @@ async def cb_check_subscription(callback: CallbackQuery, bot: Bot) -> None:
 @router.callback_query(F.data == "go:main")
 async def cb_go_main(callback: CallbackQuery) -> None:
     lang = lang_of(callback.from_user.id)
-    photo = get_image("start")
+    photo = get_image("start", lang)
     await replace_screen(callback, t("menu.main", lang), main_kb(lang), photo=photo or None)
     await callback.answer()
 
@@ -585,7 +590,7 @@ async def cb_catalog(callback: CallbackQuery, bot: Bot) -> None:
     lang = lang_of(callback.from_user.id)
     if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
-    photo = get_image("categories")
+    photo = get_image("categories", lang)
     await replace_screen(callback, t("menu.catalog", lang), categories_kb(lang), photo=photo or None)
     await callback.answer()
 
@@ -595,7 +600,7 @@ async def cb_go_cats(callback: CallbackQuery, bot: Bot) -> None:
     lang = lang_of(callback.from_user.id)
     if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
-    photo = get_image("categories")
+    photo = get_image("categories", lang)
     await replace_screen(callback, t("menu.categories", lang), categories_kb(lang), photo=photo or None)
     await callback.answer()
 
@@ -612,7 +617,7 @@ async def cb_balance(callback: CallbackQuery, bot: Bot) -> None:
         balance_usd=fmt(balance_usd),
         balance_rub=fmt(balance_rub),
     )
-    photo = get_image("balance")
+    photo = get_image("balance", lang)
     await replace_screen(callback, text, balance_kb(lang), photo=photo or None)
     await callback.answer()
 
@@ -665,7 +670,7 @@ async def cb_rules(callback: CallbackQuery, bot: Bot) -> None:
     lang = lang_of(callback.from_user.id)
     if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
-    photo = get_image("rules")
+    photo = get_image("rules", lang)
     await replace_screen(callback, t("menu.rules", lang), rules_kb(lang), photo=photo or None)
     await callback.answer()
 
@@ -703,7 +708,7 @@ async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
     )
     kb = InlineKeyboardBuilder()
     kb.button(text=get_button_text("back", lang), callback_data="go:main")
-    photo = get_image("profile")
+    photo = get_image("profile", lang)
     await replace_screen(callback, text, kb.as_markup(), photo=photo or None)
     await callback.answer()
 
@@ -728,7 +733,7 @@ async def cb_subcategory(callback: CallbackQuery, bot: Bot) -> None:
     sub_id  = int(callback.data.split(":")[1])
     sub     = get_subcategory(sub_id)
     name    = sub["name"] if sub else ""
-    photo   = get_service_image(name)
+    photo   = get_service_image(name, lang)
     text    = format_subcategory_header(name, lang)
     await replace_screen(callback, text, products_kb(sub_id, lang), photo=photo or None)
     await callback.answer()
@@ -1048,7 +1053,10 @@ def _format_media_id_reply(message: Message) -> str | None:
         return None
 
     if message.photo:
-        lines.append(f"\nКлючи: <code>{', '.join(VISUAL_KEYS)}</code>")
+        file_id = message.photo[-1].file_id
+        lines.append(f"Пример RU: <code>/setimage start {file_id}</code>")
+        lines.append(f"Пример EN: <code>/setimage start_en {file_id}</code>")
+        lines.append("Суффикс <code>_en</code> — картинка для английского интерфейса.")
 
     return "\n\n".join(lines)
 
@@ -1065,7 +1073,9 @@ async def cmd_getfileid(message: Message) -> None:
         "📸 Отправьте фото, файл или премиум-эмодзи вместе с командой — "
         "или следующим сообщением.\n"
         "Я верну <code>file_id</code> или <code>custom_emoji_id</code>.\n\n"
-        "Затем: <code>/setimage ключ file_id</code>"
+        "Затем: <code>/setimage ключ file_id</code>\n"
+        "RU: <code>start</code>, <code>categories</code>, …\n"
+        "EN: <code>start_en</code>, <code>categories_en</code>, …"
     )
 
 

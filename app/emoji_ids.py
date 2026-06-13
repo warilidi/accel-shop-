@@ -282,6 +282,26 @@ SERVICE_VISUAL_KEYS = sorted(set(SUBCATEGORY_VISUAL_KEY_EXACT.values()))
 # Ключи картинок экранов главного меню
 SCREEN_VISUAL_KEYS = ["start", "categories", "rules", "balance", "profile"]
 
+VISUAL_LANG_SUFFIX = "_en"
+
+
+def localized_visual_key(base_key: str, lang: str | None = None) -> str:
+    """Ключ картинки для языка: ru → start, en → start_en."""
+    from app.i18n import normalize_lang
+
+    if normalize_lang(lang) == "en":
+        return f"{base_key}{VISUAL_LANG_SUFFIX}"
+    return base_key
+
+
+def all_visual_keys() -> list[str]:
+    """Все ключи /setimage: русские и английские варианты."""
+    keys: list[str] = []
+    for base in [*SCREEN_VISUAL_KEYS, *SERVICE_VISUAL_KEYS]:
+        keys.append(base)
+        keys.append(f"{base}{VISUAL_LANG_SUFFIX}")
+    return keys
+
 
 def get_category_icon_id(category_name: str) -> str | None:
     """icon_custom_emoji_id для кнопки категории."""
