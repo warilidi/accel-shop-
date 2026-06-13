@@ -125,16 +125,62 @@ def footer(lang: str) -> str:
     return t("shop.footer", lang)
 
 
-def language_kb() -> InlineKeyboardMarkup:
+def language_kb(lang: str, return_to: str = "start") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🇷🇺 Русский", callback_data="lang:ru")
-    kb.button(text="🇬🇧 English", callback_data="lang:en")
-    kb.adjust(2)
+    kb.button(text="🇷🇺 Русский", callback_data=f"lang:ru:{return_to}")
+    kb.button(text="🇬🇧 English", callback_data=f"lang:en:{return_to}")
+    if return_to == "profile":
+        kb.button(text=get_button_text("back", lang), callback_data="menu:profile")
+        kb.adjust(2, 1)
+    else:
+        kb.adjust(2)
     return kb.as_markup()
 
 
 async def prompt_language(message: Message) -> None:
-    await message.answer(t("lang.choose", "ru"), reply_markup=language_kb())
+    await message.answer(t("lang.choose", "ru"), reply_markup=language_kb("ru", "start"))
+
+
+def profile_language_label(lang: str) -> str:
+    return t("profile.language_ru" if lang == "ru" else "profile.language_en", lang)
+
+
+async def show_profile_screen(callback: CallbackQuery, lang: str) -> None:
+    uid       = callback.from_user.id
+    username  = callback.from_user.username
+    full_name = callback.from_user.full_name or "—"
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt, SUM(total_usd) as total "
+            "FROM orders WHERE tg_user_id = ? AND payment_status = 'paid'",
+            (uid,),
+        ).fetchone()
+
+    orders_count = int(row["cnt"])   if row and row["cnt"]   else 0
+    total_spent  = float(row["total"]) if row and row["total"] else 0.0
+    balance_usd, balance_rub = get_user_balance(uid)
+    username_text = f"@{username}" if username else t("profile.username_missing", lang)
+
+    text = t(
+        "menu.profile", lang,
+        uid=uid,
+        full_name=full_name,
+        username=username_text,
+        orders_count=orders_count,
+        spent=fmt(total_spent),
+        balance_usd=fmt(balance_usd),
+        balance_rub=fmt(balance_rub),
+    )
+    text += "\n" + t("profile.current_language", lang, language=profile_language_label(lang))
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text=get_button_text("change_language", lang), callback_data="profile:language")
+    kb.button(text=get_button_text("back", lang), callback_data="go:main")
+    kb.adjust(1)
+
+    photo = get_image("profile", lang)
+    await replace_screen(callback, text, kb.as_markup(), photo=photo or None)
 
 
 async def show_start_screen_message(message: Message, lang: str) -> None:
@@ -557,7 +603,9 @@ async def cmd_start(message: Message, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("lang:"))
 async def cb_language(callback: CallbackQuery, bot: Bot) -> None:
-    lang = normalize_lang(callback.data.split(":")[1])
+    parts = callback.data.split(":")
+    lang = normalize_lang(parts[1])
+    return_to = parts[2] if len(parts) > 2 else "start"
     set_user_lang(callback.from_user.id, lang)
     await callback.answer(t("lang.saved", lang))
 
@@ -565,7 +613,24 @@ async def cb_language(callback: CallbackQuery, bot: Bot) -> None:
         await replace_screen(callback, t("sub.welcome", lang), subscribe_kb(lang))
         return
 
+    if return_to == "profile":
+        await show_profile_screen(callback, lang)
+        return
+
     await show_start_screen_callback(callback, lang)
+
+
+@router.callback_query(F.data == "profile:language")
+async def cb_profile_language(callback: CallbackQuery, bot: Bot) -> None:
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
+        return
+    await replace_screen(
+        callback,
+        t("lang.choose", lang),
+        language_kb(lang, "profile"),
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "check_subscription")
@@ -685,36 +750,7 @@ async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
     lang = lang_of(callback.from_user.id)
     if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
-    uid       = callback.from_user.id
-    username  = callback.from_user.username
-    full_name = callback.from_user.full_name or "—"
-
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt, SUM(total_usd) as total "
-            "FROM orders WHERE tg_user_id = ? AND payment_status = 'paid'",
-            (uid,),
-        ).fetchone()
-
-    orders_count = int(row["cnt"])   if row and row["cnt"]   else 0
-    total_spent  = float(row["total"]) if row and row["total"] else 0.0
-    balance_usd, balance_rub = get_user_balance(uid)
-    username_text = f"@{username}" if username else t("profile.username_missing", lang)
-
-    text = t(
-        "menu.profile", lang,
-        uid=uid,
-        full_name=full_name,
-        username=username_text,
-        orders_count=orders_count,
-        spent=fmt(total_spent),
-        balance_usd=fmt(balance_usd),
-        balance_rub=fmt(balance_rub),
-    )
-    kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("back", lang), callback_data="go:main")
-    photo = get_image("profile", lang)
-    await replace_screen(callback, text, kb.as_markup(), photo=photo or None)
+    await show_profile_screen(callback, lang)
     await callback.answer()
 
 
