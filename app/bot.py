@@ -27,7 +27,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
 from app.cryptobot import check_invoice_status, create_invoice
-from app.emoji_ids import format_subcategory_header, get_button_icon_id, strip_unicode_emoji
+from app.emoji_ids import (
+    format_subcategory_header,
+    get_button_icon_id,
+    get_subcategory_icon_id,
+    strip_unicode_emoji,
+)
 from app.db import (
     add_balance,
     add_custom_product,
@@ -196,7 +201,16 @@ def categories_kb() -> InlineKeyboardMarkup:
 def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for sub in list_subcategories(category_id):
-        kb.button(text=strip_unicode_emoji(sub["name"]), callback_data=f"sub:{sub['id']}")
+        name = strip_unicode_emoji(sub["name"])
+        icon_id = get_subcategory_icon_id(sub["name"])
+        if icon_id:
+            kb.button(
+                text=name,
+                callback_data=f"sub:{sub['id']}",
+                icon_custom_emoji_id=icon_id,
+            )
+        else:
+            kb.button(text=name, callback_data=f"sub:{sub['id']}")
     kb.button(text=get_button_text("back"), callback_data="menu:catalog")
     kb.adjust(1)
     return kb.as_markup()
@@ -267,6 +281,24 @@ async def send_with_photo(message: Message, text: str, kb: InlineKeyboardMarkup,
         await message.answer_photo(photo=photo, caption=text, reply_markup=kb)
     else:
         await message.answer(text, reply_markup=kb)
+
+
+async def replace_screen(
+    callback: CallbackQuery,
+    text: str,
+    kb: InlineKeyboardMarkup,
+    photo: str | None = None,
+) -> None:
+    """Удаляет текущее сообщение и показывает новый экран (без дублей в чате)."""
+    chat_id = callback.message.chat.id
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    if photo:
+        await callback.bot.send_photo(chat_id, photo=photo, caption=text, reply_markup=kb)
+    else:
+        await callback.bot.send_message(chat_id, text, reply_markup=kb)
 
 
 async def safe_edit(callback: CallbackQuery, text: str, kb: InlineKeyboardMarkup) -> None:
@@ -538,7 +570,7 @@ async def cb_check_subscription(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data == "go:main")
 async def cb_go_main(callback: CallbackQuery) -> None:
-    await safe_edit(callback, "🏠 Главное меню:", main_kb())
+    await replace_screen(callback, "🏠 Главное меню:", main_kb())
     await callback.answer()
 
 
@@ -548,10 +580,7 @@ async def cb_catalog(callback: CallbackQuery, bot: Bot) -> None:
         return
     text  = "🛍️ <b>Товары и услуги</b>\nВыберите раздел:"
     photo = get_image("categories")
-    if photo:
-        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=categories_kb())
-    else:
-        await safe_edit(callback, text, categories_kb())
+    await replace_screen(callback, text, categories_kb(), photo=photo or None)
     await callback.answer()
 
 
@@ -559,7 +588,7 @@ async def cb_catalog(callback: CallbackQuery, bot: Bot) -> None:
 async def cb_go_cats(callback: CallbackQuery, bot: Bot) -> None:
     if not await require_subscription(bot, callback.from_user.id, callback):
         return
-    await safe_edit(callback, "📂 Выберите раздел:", categories_kb())
+    await replace_screen(callback, "📂 Выберите раздел:", categories_kb())
     await callback.answer()
 
 
@@ -677,7 +706,7 @@ async def cb_category(callback: CallbackQuery, bot: Bot) -> None:
     if not await require_subscription(bot, callback.from_user.id, callback):
         return
     cat_id = int(callback.data.split(":")[1])
-    await safe_edit(callback, "📂 Выберите сервис:", subcategories_kb(cat_id))
+    await replace_screen(callback, "📂 Выберите сервис:", subcategories_kb(cat_id))
     await callback.answer()
 
 
@@ -690,11 +719,7 @@ async def cb_subcategory(callback: CallbackQuery, bot: Bot) -> None:
     name    = sub["name"] if sub else ""
     photo   = get_service_image(name)
     text    = format_subcategory_header(name)
-
-    if photo:
-        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=products_kb(sub_id))
-    else:
-        await safe_edit(callback, text, products_kb(sub_id))
+    await replace_screen(callback, text, products_kb(sub_id), photo=photo or None)
     await callback.answer()
 
 
@@ -731,13 +756,8 @@ async def cb_product(callback: CallbackQuery, bot: Bot) -> None:
     kb.button(text=get_button_text("back"), callback_data=f"sub:{product['subcategory_id']}")
     kb.adjust(1)
 
-    await safe_edit(callback, text, kb.as_markup())
+    await replace_screen(callback, text, kb.as_markup())
     await callback.answer()
-
-
-# ─── Покупка ───────────────────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     if not await require_subscription(bot, callback.from_user.id, callback):
         return
@@ -751,7 +771,7 @@ async def cb_buy(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     max_qty = min(product["stock"], 12)
     await state.set_state(BuyFlow.choose_qty)
     await state.update_data(product_id=product_id)
-    await safe_edit(callback, f"🔢 Выберите количество (1–{max_qty}):", qty_kb(product_id, max_qty))
+    await replace_screen(callback, f"🔢 Выберите количество (1–{max_qty}):", qty_kb(product_id, max_qty))
     await callback.answer()
 
 
@@ -801,7 +821,7 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
         "➖➖➖➖➖➖➖➖➖\n"
         "Выберите способ оплаты:"
     )
-    await safe_edit(callback, text, pay_kb(code))
+    await replace_screen(callback, text, pay_kb(code))
     await callback.answer()
 
 
@@ -857,7 +877,7 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
                 f"{extra}\n\n{SHOP_FOOTER}"
             )
         
-        await safe_edit(callback, text, InlineKeyboardBuilder().as_markup())
+        await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
         await callback.answer("Спасибо за покупку! 🎉")
         return
 
@@ -897,7 +917,7 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
                 kb.button(text="Оплатить", url=pay_link)
                 kb.button(text="Проверить оплату", callback_data=f"check:{code}")
                 kb.adjust(1)
-                await safe_edit(callback, text, kb.as_markup())
+                await replace_screen(callback, text, kb.as_markup())
                 await callback.answer()
                 return
             except Exception:
@@ -932,7 +952,7 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
 
     kb = InlineKeyboardBuilder()
     kb.button(text=get_button_text("confirm_paid"), callback_data=f"paid:{code}")
-    await safe_edit(callback, text, kb.as_markup())
+    await replace_screen(callback, text, kb.as_markup())
     await callback.answer()
 
 
@@ -1011,7 +1031,7 @@ async def cb_paid(callback: CallbackQuery) -> None:
             f"{extra}\n\n{SHOP_FOOTER}"
         )
 
-    await safe_edit(callback, text, InlineKeyboardBuilder().as_markup())
+    await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
     await callback.answer("Спасибо за покупку! 🎉")
 
 
