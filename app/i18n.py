@@ -36,6 +36,7 @@ BUTTON_TEXTS: dict[str, dict[str, str]] = {
         "subscribe": "Подписаться на канал",
         "subscribed": "Я подписался",
         "write_admin": "Написать админу",
+        "change_language": "Сменить язык",
     },
     "en": {
         "catalog": "Products & Services",
@@ -60,6 +61,7 @@ BUTTON_TEXTS: dict[str, dict[str, str]] = {
         "subscribe": "Subscribe to channel",
         "subscribed": "I subscribed",
         "write_admin": "Contact admin",
+        "change_language": "Change language",
     },
 }
 
@@ -162,6 +164,9 @@ TEXTS: dict[str, dict[str, str]] = {
             "💳 На балансе: <b>${balance_usd}</b> / <b>{balance_rub}₽</b>"
         ),
         "profile.username_missing": "не указан",
+        "profile.current_language": "🌐 Язык: <b>{language}</b>",
+        "profile.language_ru": "Русский",
+        "profile.language_en": "English",
         "catalog.pick_product": "Выберите товар:",
         "product.not_found": "Товар не найден",
         "product.out_of_stock": "К сожалению, товара нет в наличии",
@@ -299,6 +304,9 @@ TEXTS: dict[str, dict[str, str]] = {
             "💳 Balance: <b>${balance_usd}</b> / <b>{balance_rub}₽</b>"
         ),
         "profile.username_missing": "not set",
+        "profile.current_language": "🌐 Language: <b>{language}</b>",
+        "profile.language_ru": "Russian",
+        "profile.language_en": "English",
         "catalog.pick_product": "Choose a product:",
         "product.not_found": "Product not found",
         "product.out_of_stock": "Sorry, this product is out of stock",
