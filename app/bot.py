@@ -30,6 +30,7 @@ from app.cryptobot import check_invoice_status, create_invoice
 from app.emoji_ids import (
     format_subcategory_header,
     get_button_icon_id,
+    get_category_icon_id,
     get_menu_button_icon_id,
     get_subcategory_icon_id,
     strip_unicode_emoji,
@@ -205,7 +206,9 @@ def rules_kb() -> InlineKeyboardMarkup:
 def categories_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for cat in list_categories():
-        kb.button(text=strip_unicode_emoji(cat["name"]), callback_data=f"cat:{cat['id']}")
+        name = strip_unicode_emoji(cat["name"])
+        icon_id = get_category_icon_id(cat["name"])
+        _icon_button(kb, name, icon_id, callback_data=f"cat:{cat['id']}")
     kb.button(text=get_button_text("back"), callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()

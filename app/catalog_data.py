@@ -197,4 +197,12 @@ DEFAULT_CATALOG = [
             {"name": "Notion", "products": [p("Notion Business 3m (Link)", 4, "Link")]},
         ],
     },
+    {
+        "name": "Накрутка",
+        "items": [],
+    },
+    {
+        "name": "Игры",
+        "items": [],
+    },
 ]

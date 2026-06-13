@@ -58,6 +58,14 @@ PREMIUM_EMOJI = {
     "notion":     "5239963889004732575",
 }
 
+# icon_custom_emoji_id для кнопок категорий каталога
+CATEGORY_ICON = {
+    "нейросети":       "5206323862601504338",
+    "другие сервисы":  "5203975636477055920",
+    "накрутка":        "5204381382037509272",
+    "игры":            "5204187760616840144",
+}
+
 # icon_custom_emoji_id для кнопок главного меню
 MENU_BUTTON_ICONS = {
     "catalog":   "5370983124794625878",
@@ -234,6 +242,12 @@ def get_subcategory_emoji_key(subcategory_name: str) -> str | None:
         if key in sub_lower:
             return emoji_key
     return None
+
+
+def get_category_icon_id(category_name: str) -> str | None:
+    """icon_custom_emoji_id для кнопки категории."""
+    key = strip_unicode_emoji(category_name).lower().strip()
+    return CATEGORY_ICON.get(key)
 
 
 def get_menu_button_icon_id(button_id: str) -> str | None:
