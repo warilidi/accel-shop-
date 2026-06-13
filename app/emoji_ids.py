@@ -294,13 +294,38 @@ def localized_visual_key(base_key: str, lang: str | None = None) -> str:
     return base_key
 
 
+def ru_visual_keys() -> list[str]:
+    """Базовые ключи картинок для русского интерфейса."""
+    return sorted({*SCREEN_VISUAL_KEYS, *SERVICE_VISUAL_KEYS})
+
+
+def en_visual_keys() -> list[str]:
+    """Ключи картинок для английского интерфейса (с суффиксом _en)."""
+    return [f"{key}{VISUAL_LANG_SUFFIX}" for key in ru_visual_keys()]
+
+
 def all_visual_keys() -> list[str]:
-    """Все ключи /setimage: русские и английские варианты."""
-    keys: list[str] = []
-    for base in [*SCREEN_VISUAL_KEYS, *SERVICE_VISUAL_KEYS]:
-        keys.append(base)
-        keys.append(f"{base}{VISUAL_LANG_SUFFIX}")
-    return keys
+    """Все ключи в БД: ru + en."""
+    return [*ru_visual_keys(), *en_visual_keys()]
+
+
+def normalize_visual_input_key(key: str, lang: str) -> str | None:
+    """
+    Ключ из команды админа → ключ хранения в БД.
+    lang: 'ru' | 'en'
+    """
+    from app.i18n import normalize_lang
+
+    raw = (key or "").lower().strip()
+    if not raw:
+        return None
+    if raw.endswith(VISUAL_LANG_SUFFIX):
+        raw = raw[: -len(VISUAL_LANG_SUFFIX)]
+    if raw not in ru_visual_keys():
+        return None
+    if normalize_lang(lang) == "en":
+        return f"{raw}{VISUAL_LANG_SUFFIX}"
+    return raw
 
 
 def get_category_icon_id(category_name: str) -> str | None:
