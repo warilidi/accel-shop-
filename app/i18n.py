@@ -401,3 +401,21 @@ def product_type_hint(product_type: str, lang: str | None = None) -> str:
     lang = normalize_lang(lang)
     hints = PRODUCT_TYPE_HINTS_I18N.get(lang, PRODUCT_TYPE_HINTS_I18N[DEFAULT_LANG])
     return hints.get(product_type, t("product.hint_default", lang))
+
+
+# Названия категорий каталога (ключ — имя в БД, lowercase)
+CATEGORY_NAMES: dict[str, dict[str, str]] = {
+    "нейросети":       {"ru": "Нейросети",       "en": "AI Services"},
+    "другие сервисы":  {"ru": "Другие сервисы",  "en": "Other Services"},
+    "накрутка":        {"ru": "Накрутка",        "en": "Promotion"},
+    "игры":            {"ru": "Игры",            "en": "Games"},
+}
+
+
+def translate_category(name: str, lang: str | None = None) -> str:
+    """Локализованное название категории для кнопки."""
+    lang = normalize_lang(lang)
+    key = (name or "").lower().strip()
+    if key in CATEGORY_NAMES:
+        return CATEGORY_NAMES[key][lang]
+    return name
