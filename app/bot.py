@@ -24,7 +24,6 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
 from app.cryptobot import check_invoice_status, create_invoice
 from app.emoji_ids import (
@@ -38,6 +37,7 @@ from app.emoji_ids import (
     SERVICE_VISUAL_KEYS,
     strip_unicode_emoji,
 )
+from app.i18n import normalize_lang, product_type_hint, t
 from app.db import (
     add_balance,
     add_custom_product,
@@ -55,6 +55,7 @@ from app.db import (
     get_product,
     get_subcategory,
     get_user_balance,
+    get_user_lang,
     get_visual,
     init_db,
     list_all_buttons,
@@ -70,6 +71,7 @@ from app.db import (
     reset_all_buttons,
     reset_button_text,
     set_balance,
+    set_user_lang,
     set_button_text,
     set_order_invoice_id,
     set_order_payment_method,
@@ -84,9 +86,6 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 settings = load_settings()
-
-# Подпись под каждым сообщением со стороны магазина
-SHOP_FOOTER = "— Админ/Связь/Опт — @Dolzu"
 
 # Картинки по умолчанию (можно переопределить через /setimage)
 VISUALS: dict[str, str] = {}
@@ -107,6 +106,46 @@ class AdminFlow(StatesGroup):
     broadcast_wait   = State()
     set_balance_wait = State()
     edit_product_wait = State()
+
+
+# ─── Язык ────────────────────────────────────────────────────────────────────
+
+def lang_of(user_id: int) -> str:
+    return normalize_lang(get_user_lang(user_id))
+
+
+def has_lang(user_id: int) -> bool:
+    return get_user_lang(user_id) is not None
+
+
+def footer(lang: str) -> str:
+    return t("shop.footer", lang)
+
+
+def language_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🇷🇺 Русский", callback_data="lang:ru")
+    kb.button(text="🇬🇧 English", callback_data="lang:en")
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+async def prompt_language(message: Message) -> None:
+    await message.answer(t("lang.choose", "ru"), reply_markup=language_kb())
+
+
+async def show_start_screen_message(message: Message, lang: str) -> None:
+    await send_with_photo(message, t("start.text", lang), main_kb(lang), get_image("start"))
+
+
+async def show_start_screen_callback(callback: CallbackQuery, lang: str) -> None:
+    photo = get_image("start")
+    await replace_screen(
+        callback,
+        t("start.text", lang),
+        main_kb(lang),
+        photo=photo or None,
+    )
 
 
 # ─── Вспомогательные функции ───────────────────────────────────────────────
@@ -156,52 +195,52 @@ def _icon_button(
         kb.button(text=text, **kwargs)
 
 
-def main_kb() -> InlineKeyboardMarkup:
+def main_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    _icon_button(kb, get_button_text("catalog"),   get_menu_button_icon_id("catalog"),   callback_data="menu:catalog")
-    _icon_button(kb, get_button_text("balance"),   get_menu_button_icon_id("balance"),   callback_data="menu:balance")
-    _icon_button(kb, get_button_text("wholesale"), get_menu_button_icon_id("wholesale"), url=normalize_link(settings.wholesale_link, "https://t.me/Dolzu"))
-    _icon_button(kb, get_button_text("help"),      get_menu_button_icon_id("help"),      url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
-    _icon_button(kb, get_button_text("profile"),   get_menu_button_icon_id("profile"),   callback_data="menu:profile")
-    _icon_button(kb, get_button_text("rules"),     get_menu_button_icon_id("rules"),     callback_data="menu:rules")
+    _icon_button(kb, get_button_text("catalog", lang),   get_menu_button_icon_id("catalog"),   callback_data="menu:catalog")
+    _icon_button(kb, get_button_text("balance", lang),   get_menu_button_icon_id("balance"),   callback_data="menu:balance")
+    _icon_button(kb, get_button_text("wholesale", lang), get_menu_button_icon_id("wholesale"), url=normalize_link(settings.wholesale_link, "https://t.me/Dolzu"))
+    _icon_button(kb, get_button_text("help", lang),      get_menu_button_icon_id("help"),      url=normalize_link(settings.help_link, "https://t.me/Dolzu"))
+    _icon_button(kb, get_button_text("profile", lang),   get_menu_button_icon_id("profile"),   callback_data="menu:profile")
+    _icon_button(kb, get_button_text("rules", lang),     get_menu_button_icon_id("rules"),     callback_data="menu:rules")
     kb.adjust(1, 1, 2, 2)
     return kb.as_markup()
 
 
-def rules_kb() -> InlineKeyboardMarkup:
+def rules_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("agree"),
+    kb.button(text=get_button_text("agree", lang),
               url="https://telegra.ph/POLZOVATELSKOE-SOGLASHENIE-01-07-19")
-    kb.button(text=get_button_text("privacy"),
+    kb.button(text=get_button_text("privacy", lang),
               url="https://telegra.ph/Politika-konfidencialnosti-01-07-38")
-    kb.button(text=get_button_text("back"), callback_data="go:main")
+    kb.button(text=get_button_text("back", lang), callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def categories_kb() -> InlineKeyboardMarkup:
+def categories_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for cat in list_categories():
         name = strip_unicode_emoji(cat["name"])
         icon_id = get_category_icon_id(cat["name"])
         _icon_button(kb, name, icon_id, callback_data=f"cat:{cat['id']}")
-    kb.button(text=get_button_text("back"), callback_data="go:main")
+    kb.button(text=get_button_text("back", lang), callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def subcategories_kb(category_id: int) -> InlineKeyboardMarkup:
+def subcategories_kb(category_id: int, lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for sub in list_subcategories(category_id):
         name = strip_unicode_emoji(sub["name"])
         icon_id = get_subcategory_icon_id(sub["name"])
         _icon_button(kb, name, icon_id, callback_data=f"sub:{sub['id']}")
-    kb.button(text=get_button_text("back"), callback_data="menu:catalog")
+    kb.button(text=get_button_text("back", lang), callback_data="menu:catalog")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
+def products_kb(subcategory_id: int, lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     sub = get_subcategory(subcategory_id)
     sub_name = sub["name"] if sub else ""
@@ -211,39 +250,39 @@ def products_kb(subcategory_id: int) -> InlineKeyboardMarkup:
         if ptype and not title.startswith("["):
             title = f"[{ptype}] {title}"
         price_part = f" — ${fmt(p['price_usd'])}"
-        stock_note = "" if p["stock"] > 0 else " · нет в наличии"
+        stock_note = "" if p["stock"] > 0 else t("product.out_of_stock_note", lang)
         btn_text = f"{title}{price_part}{stock_note}"
         icon_id = get_button_icon_id(p["title"], sub_name)
         _icon_button(kb, btn_text, icon_id, callback_data=f"prod:{p['id']}")
-    kb.button(text=get_button_text("back"), callback_data="go:cats")
+    kb.button(text=get_button_text("back", lang), callback_data="go:cats")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def qty_kb(product_id: int, max_qty: int) -> InlineKeyboardMarkup:
+def qty_kb(product_id: int, max_qty: int, lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for i in range(1, max_qty + 1):
         kb.button(text=str(i), callback_data=f"qty:{product_id}:{i}")
-    kb.button(text=get_button_text("back"), callback_data=f"prod:{product_id}")
+    kb.button(text=get_button_text("back", lang), callback_data=f"prod:{product_id}")
     kb.adjust(4)
     return kb.as_markup()
 
 
-def pay_kb(order_code: str) -> InlineKeyboardMarkup:
+def pay_kb(order_code: str, lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("crypto_usdt"), callback_data=f"pay:crypto_usdt:{order_code}")
-    kb.button(text=get_button_text("crypto_ton"),  callback_data=f"pay:crypto_ton:{order_code}")
-    kb.button(text=get_button_text("bybit"),       callback_data=f"pay:bybit:{order_code}")
-    kb.button(text=get_button_text("balance_pay"), callback_data=f"pay:balance:{order_code}")
+    kb.button(text=get_button_text("crypto_usdt", lang), callback_data=f"pay:crypto_usdt:{order_code}")
+    kb.button(text=get_button_text("crypto_ton", lang),  callback_data=f"pay:crypto_ton:{order_code}")
+    kb.button(text=get_button_text("bybit", lang),       callback_data=f"pay:bybit:{order_code}")
+    kb.button(text=get_button_text("balance_pay", lang), callback_data=f"pay:balance:{order_code}")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def balance_kb() -> InlineKeyboardMarkup:
+def balance_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("topup"),   callback_data="balance:topup")
-    kb.button(text=get_button_text("history"), callback_data="balance:history")
-    kb.button(text=get_button_text("back"),    callback_data="go:main")
+    kb.button(text=get_button_text("topup", lang),   callback_data="balance:topup")
+    kb.button(text=get_button_text("history", lang), callback_data="balance:history")
+    kb.button(text=get_button_text("back", lang),    callback_data="go:main")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -338,21 +377,8 @@ async def _fulfill_order(bot: Bot, order_code: str) -> None:
     product       = get_product(int(order["product_id"]))
     payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
     delivery_note = (product["delivery_text"] or "").strip() if product else ""
-    extra         = f"\n\n📨 <b>Инструкция по активации:</b>\n{delivery_note}" if delivery_note else ""
-
-    if not payloads:
-        text = (
-            "⏳ Оплата получена, спасибо!\n\n"
-            "Товар временно закончился — администратор свяжется с вами в ближайшее время."
-            f"{extra}\n\n{SHOP_FOOTER}"
-        )
-    else:
-        items = "\n\n".join(f"{i + 1}) <code>{v}</code>" for i, v in enumerate(payloads))
-        text  = (
-            "✅ <b>Оплата подтверждена автоматически!</b>\n\n"
-            f"Ваш товар:\n\n{items}"
-            f"{extra}\n\n{SHOP_FOOTER}"
-        )
+    lang          = lang_of(int(order["tg_user_id"]))
+    text          = order_success_text(lang, payloads, delivery_note)
 
     try:
         await bot.send_message(
@@ -463,35 +489,43 @@ async def is_subscribed(bot: Bot, user_id: int) -> bool:
         return True  # если бот не может проверить (не добавлен в канал) — пропускаем
 
 
-def subscribe_kb() -> InlineKeyboardMarkup:
+def subscribe_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(
-        text="Подписаться на канал",
+        text=get_button_text("subscribe", lang),
         url=f"https://t.me/{REQUIRED_CHANNEL_USERNAME}",
     )
-    kb.button(text="Я подписался", callback_data="check_subscription")
+    kb.button(text=get_button_text("subscribed", lang), callback_data="check_subscription")
     kb.adjust(1)
     return kb.as_markup()
 
 
-async def require_subscription(bot: Bot, user_id: int, callback: CallbackQuery | None = None) -> bool:
+async def require_subscription(
+    bot: Bot, user_id: int, callback: CallbackQuery | None = None, lang: str | None = None,
+) -> bool:
     """
     Проверяет подписку. Если не подписан — показывает заглушку и возвращает False.
     Используй: if not await require_subscription(bot, uid, callback): return
     """
+    lang = normalize_lang(lang or lang_of(user_id))
     if await is_subscribed(bot, user_id):
         return True
-    text = (
-        "🔒 <b>Доступ закрыт</b>\n\n"
-        "Для использования магазина необходимо подписаться на наш канал:"
-    )
+    text = t("sub.locked", lang)
     if callback:
         try:
-            await callback.message.answer(text, reply_markup=subscribe_kb())
+            await callback.message.answer(text, reply_markup=subscribe_kb(lang))
         except Exception:
             pass
-        await callback.answer("Подпишитесь на канал!", show_alert=True)
+        await callback.answer(t("sub.alert", lang), show_alert=True)
     return False
+
+
+def order_success_text(lang: str, payloads: list[str], delivery_note: str) -> str:
+    extra = t("order.delivery", lang, note=delivery_note) if delivery_note else ""
+    if not payloads:
+        return f"{t('order.stock_empty', lang)}{extra}\n\n{footer(lang)}"
+    items = "\n\n".join(f"{i + 1}) <code>{v}</code>" for i, v in enumerate(payloads))
+    return f"{t('order.paid_ok', lang, items=items)}{extra}\n\n{footer(lang)}"
 
 
 # ─── /start ───────────────────────────────────────────────────────────────
@@ -499,106 +533,99 @@ async def require_subscription(bot: Bot, user_id: int, callback: CallbackQuery |
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot) -> None:
     user_id = message.from_user.id
-    if not await is_subscribed(bot, user_id):
-        await message.answer(
-            "👋 Добро пожаловать в <b>Accel Shop</b>!\n\n"
-            "Для пользования ботом подпишитесь на наш информационный канал:",
-            reply_markup=subscribe_kb(),
-        )
+    if not has_lang(user_id):
+        await prompt_language(message)
         return
 
-    text = (
-        "👋 Приветствую в <b>Accel Shop</b>!\n\n"
-        "🏪 Это цифровой магазин подписок на нейросети и популярные сервисы.\n"
-        "Здесь аккаунты, подписки, сертификаты и многое другое!\n\n"
-        "👇 Нажмите кнопку ниже чтобы начать.\n\n"
-        "Информационный канал: @Accel_Shop"
-    )
-    await send_with_photo(message, text, main_kb(), get_image("start"))
+    lang = lang_of(user_id)
+    if not await is_subscribed(bot, user_id):
+        await message.answer(t("sub.welcome", lang), reply_markup=subscribe_kb(lang))
+        return
+
+    await show_start_screen_message(message, lang)
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def cb_language(callback: CallbackQuery, bot: Bot) -> None:
+    lang = normalize_lang(callback.data.split(":")[1])
+    set_user_lang(callback.from_user.id, lang)
+    await callback.answer(t("lang.saved", lang))
+
+    if not await is_subscribed(bot, callback.from_user.id):
+        await replace_screen(callback, t("sub.welcome", lang), subscribe_kb(lang))
+        return
+
+    await show_start_screen_callback(callback, lang)
 
 
 @router.callback_query(F.data == "check_subscription")
 async def cb_check_subscription(callback: CallbackQuery, bot: Bot) -> None:
     user_id = callback.from_user.id
+    lang = lang_of(user_id)
     if not await is_subscribed(bot, user_id):
-        await callback.answer(
-            "❌ Вы ещё не подписались на канал. Подпишитесь и нажмите кнопку снова.",
-            show_alert=True,
-        )
+        await callback.answer(t("sub.not_yet", lang), show_alert=True)
         return
 
-    await callback.answer("✅ Отлично! Добро пожаловать!")
-    text = (
-        "👋 Приветствую в <b>Accel Shop</b>!\n\n"
-        "🏪 Это цифровой магазин подписок на нейросети и популярные сервисы.\n"
-        "Здесь аккаунты, подписки, сертификаты и многое другое!\n\n"
-        "👇 Нажмите кнопку ниже чтобы начать.\n\n"
-        "Информационный канал: @Accel_Shop"
-    )
-    photo = get_image("start")
-    if photo:
-        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=main_kb())
-    else:
-        await callback.message.answer(text, reply_markup=main_kb())
+    await callback.answer(t("sub.ok", lang))
+    await show_start_screen_callback(callback, lang)
 
 
 # ─── Навигация главного меню ──────────────────────────────────────────────
 
 @router.callback_query(F.data == "go:main")
 async def cb_go_main(callback: CallbackQuery) -> None:
+    lang = lang_of(callback.from_user.id)
     photo = get_image("start")
-    await replace_screen(callback, "🏠 Главное меню:", main_kb(), photo=photo or None)
+    await replace_screen(callback, t("menu.main", lang), main_kb(lang), photo=photo or None)
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:catalog")
 async def cb_catalog(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
-    text  = "🛍️ <b>Товары и услуги</b>\nВыберите раздел:"
     photo = get_image("categories")
-    await replace_screen(callback, text, categories_kb(), photo=photo or None)
+    await replace_screen(callback, t("menu.catalog", lang), categories_kb(lang), photo=photo or None)
     await callback.answer()
 
 
 @router.callback_query(F.data == "go:cats")
 async def cb_go_cats(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     photo = get_image("categories")
-    await replace_screen(callback, "📂 Выберите раздел:", categories_kb(), photo=photo or None)
+    await replace_screen(callback, t("menu.categories", lang), categories_kb(lang), photo=photo or None)
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:balance")
 async def cb_balance(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     uid = callback.from_user.id
     balance_usd, balance_rub = get_user_balance(uid)
-    text = (
-        "💳 <b>Ваш баланс</b>\n"
-        f"💰 {fmt(balance_usd)} $ / {fmt(balance_rub)} ₽\n\n"
-        "Используйте баланс для быстрых покупок без повторной оплаты."
+    text = t(
+        "menu.balance", lang,
+        balance_usd=fmt(balance_usd),
+        balance_rub=fmt(balance_rub),
     )
     photo = get_image("balance")
-    await replace_screen(callback, text, balance_kb(), photo=photo or None)
+    await replace_screen(callback, text, balance_kb(lang), photo=photo or None)
     await callback.answer()
 
 
 @router.callback_query(F.data == "balance:topup")
 async def cb_balance_topup(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
-    text = (
-        "💳 <b>Пополнение баланса</b>\n\n"
-        "Свяжитесь с администратором для пополнения баланса:\n"
-        "@Dolzu\n\n"
-        "Укажите желаемую сумму."
-    )
+    text = t("menu.balance_topup", lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text="Написать админу", url="https://t.me/Dolzu")
-    kb.button(text=get_button_text("back"), callback_data="menu:balance")
+    kb.button(text=get_button_text("write_admin", lang), url="https://t.me/Dolzu")
+    kb.button(text=get_button_text("back", lang), callback_data="menu:balance")
     kb.adjust(1)
     await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
@@ -606,7 +633,8 @@ async def cb_balance_topup(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data == "balance:history")
 async def cb_balance_history(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     uid = callback.from_user.id
     with get_conn() as conn:
@@ -615,35 +643,37 @@ async def cb_balance_history(callback: CallbackQuery, bot: Bot) -> None:
             (uid,),
         ).fetchall()
     if not rows:
-        text = "📜 <b>История заказов</b>\n\nНет заказов."
+        text = t("menu.balance_history_empty", lang)
     else:
-        lines = ["📜 <b>Последние 10 заказов:</b>\n"]
+        lines = [t("menu.balance_history_title", lang)]
         for row in rows:
-            status = "✅ Оплачено" if row["payment_status"] == "paid" else "⏳ Ожидание"
+            status = (
+                t("menu.balance_history_paid", lang)
+                if row["payment_status"] == "paid"
+                else t("menu.balance_history_pending", lang)
+            )
             lines.append(f"{fmt(row['total_usd'])}$ — {status}")
         text = "\n".join(lines)
     kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("back"), callback_data="menu:balance")
+    kb.button(text=get_button_text("back", lang), callback_data="menu:balance")
     await safe_edit(callback, text, kb.as_markup())
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:rules")
 async def cb_rules(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
-    text = (
-        "📚 <b>Правила и соглашения</b>\n\n"
-        "Перед использованием магазина ознакомьтесь с документами:"
-    )
     photo = get_image("rules")
-    await replace_screen(callback, text, rules_kb(), photo=photo or None)
+    await replace_screen(callback, t("menu.rules", lang), rules_kb(lang), photo=photo or None)
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:profile")
 async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     uid       = callback.from_user.id
     username  = callback.from_user.username
@@ -659,18 +689,20 @@ async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
     orders_count = int(row["cnt"])   if row and row["cnt"]   else 0
     total_spent  = float(row["total"]) if row and row["total"] else 0.0
     balance_usd, balance_rub = get_user_balance(uid)
+    username_text = f"@{username}" if username else t("profile.username_missing", lang)
 
-    text = (
-        "👤 <b>Ваш профиль</b>\n\n"
-        f"🆔 ID: <code>{uid}</code>\n"
-        f"👤 Имя: {full_name}\n"
-        f"📧 Username: {'@' + username if username else 'не указан'}\n\n"
-        f"🛍️ Заказов выполнено: <b>{orders_count}</b>\n"
-        f"💰 Потрачено: <b>${fmt(total_spent)}</b>\n"
-        f"💳 На балансе: <b>${fmt(balance_usd)}</b> / <b>{fmt(balance_rub)}₽</b>"
+    text = t(
+        "menu.profile", lang,
+        uid=uid,
+        full_name=full_name,
+        username=username_text,
+        orders_count=orders_count,
+        spent=fmt(total_spent),
+        balance_usd=fmt(balance_usd),
+        balance_rub=fmt(balance_rub),
     )
     kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("back"), callback_data="go:main")
+    kb.button(text=get_button_text("back", lang), callback_data="go:main")
     photo = get_image("profile")
     await replace_screen(callback, text, kb.as_markup(), photo=photo or None)
     await callback.answer()
@@ -680,81 +712,91 @@ async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("cat:"))
 async def cb_category(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     cat_id = int(callback.data.split(":")[1])
-    await replace_screen(callback, "📂 Выберите сервис:", subcategories_kb(cat_id))
+    await replace_screen(callback, t("menu.services", lang), subcategories_kb(cat_id, lang))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("sub:"))
 async def cb_subcategory(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     sub_id  = int(callback.data.split(":")[1])
     sub     = get_subcategory(sub_id)
     name    = sub["name"] if sub else ""
     photo   = get_service_image(name)
-    text    = format_subcategory_header(name)
-    await replace_screen(callback, text, products_kb(sub_id), photo=photo or None)
+    text    = format_subcategory_header(name, lang)
+    await replace_screen(callback, text, products_kb(sub_id, lang), photo=photo or None)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("prod:"))
 async def cb_product(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     product_id = int(callback.data.split(":")[1])
     product    = get_product(product_id)
 
     if not product:
-        await callback.answer("Товар не найден", show_alert=True)
+        await callback.answer(t("product.not_found", lang), show_alert=True)
         return
 
     ptype  = (product["product_type"] or "").strip()
-    hint   = PRODUCT_TYPE_HINTS.get(ptype, "Уточняйте у администратора.")
-    status = "В наличии" if product["stock"] > 0 else "Нет в наличии"
+    hint   = product_type_hint(ptype, lang)
+    status = t("product.in_stock", lang) if product["stock"] > 0 else t("product.no_stock", lang)
     desc   = (product["description"] or "").strip()
+    desc_line = t("product.desc_line", lang, desc=desc) if desc else ""
 
-    text = (
-        f"📦 <b>{product['title']}</b>\n"
-        + (f"📝 {desc}\n" if desc else "")
-        + f"\n💰 Цена: <b>${fmt(product['price_usd'])}</b>\n"
-        f"📊 Остаток: {product['stock']} шт.\n"
-        f"🧩 Тип: {ptype or 'не указан'}\n"
-        f"ℹ️ {hint}\n"
-        f"📌 {status}\n\n"
-        f"{SHOP_FOOTER}"
+    text = t(
+        "product.card", lang,
+        title=product["title"],
+        desc=desc_line,
+        price=fmt(product["price_usd"]),
+        stock=product["stock"],
+        ptype=ptype or t("product.type_missing", lang),
+        hint=hint,
+        status=status,
+        footer=footer(lang),
     )
 
     kb = InlineKeyboardBuilder()
     if product["stock"] > 0:
-        kb.button(text=get_button_text("buy"), callback_data=f"buy:{product_id}")
-    kb.button(text=get_button_text("back"), callback_data=f"sub:{product['subcategory_id']}")
+        kb.button(text=get_button_text("buy", lang), callback_data=f"buy:{product_id}")
+    kb.button(text=get_button_text("back", lang), callback_data=f"sub:{product['subcategory_id']}")
     kb.adjust(1)
 
     await replace_screen(callback, text, kb.as_markup())
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     product_id = int(callback.data.split(":")[1])
     product    = get_product(product_id)
 
     if not product or product["stock"] <= 0:
-        await callback.answer("К сожалению, товара нет в наличии", show_alert=True)
+        await callback.answer(t("product.out_of_stock", lang), show_alert=True)
         return
 
     max_qty = min(product["stock"], 12)
     await state.set_state(BuyFlow.choose_qty)
     await state.update_data(product_id=product_id)
-    await replace_screen(callback, f"🔢 Выберите количество (1–{max_qty}):", qty_kb(product_id, max_qty))
+    await replace_screen(callback, t("qty.choose", lang, max_qty=max_qty), qty_kb(product_id, max_qty, lang))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("qty:"))
 async def cb_qty(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     _, pid_s, qty_s = callback.data.split(":")
     product_id = int(pid_s)
@@ -762,10 +804,10 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     product    = get_product(product_id)
 
     if not product:
-        await callback.answer("Товар не найден", show_alert=True)
+        await callback.answer(t("product.not_found", lang), show_alert=True)
         return
     if qty > product["stock"]:
-        await callback.answer("Недостаточно товара на складе", show_alert=True)
+        await callback.answer(t("pay.insufficient_stock", lang), show_alert=True)
         return
 
     price     = float(product["price_usd"])
@@ -787,31 +829,30 @@ async def cb_qty(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
         created_ts=now,
     )
 
-    text = (
-        "💸 <b>Оформление заказа</b>\n"
-        "➖➖➖➖➖➖➖➖➖\n"
-        f"📦 Товар: {product['title']}\n"
-        f"🔢 Кол-во: {qty} шт.\n"
-        f"💰 Цена за шт.: {fmt(price)} $\n"
-        f"💵 Итого: {fmt(total_usd)} $ / {fmt(total_rub)} ₽\n"
-        f"🔖 Код заказа: <code>{code}</code>\n"
-        "➖➖➖➖➖➖➖➖➖\n"
-        "Выберите способ оплаты:"
+    text = t("order.title", lang) + t(
+        "order.body", lang,
+        title=product["title"],
+        qty=qty,
+        price=fmt(price),
+        total_usd=fmt(total_usd),
+        total_rub=fmt(total_rub),
+        code=code,
     )
-    await replace_screen(callback, text, pay_kb(code))
+    await replace_screen(callback, text, pay_kb(code, lang))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("pay:"))
 async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
-    if not await require_subscription(bot, callback.from_user.id, callback):
+    lang = lang_of(callback.from_user.id)
+    if not await require_subscription(bot, callback.from_user.id, callback, lang):
         return
     _, method, code = callback.data.split(":")
     order   = get_order(code)
     product = get_product(int(order["product_id"])) if order else None
 
     if not order or not product:
-        await callback.answer("Заказ не найден", show_alert=True)
+        await callback.answer(t("order.not_found", lang), show_alert=True)
         return
 
     if method == "balance":
@@ -819,43 +860,28 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
         balance_usd, balance_rub = get_user_balance(uid)
         total_usd = float(order["total_usd"])
         total_rub = float(order["total_rub"])
-        
+
         if balance_usd < total_usd:
             await callback.answer(
-                f"Недостаточно средств на балансе.\n"
-                f"Требуется: ${fmt(total_usd)}, у вас: ${fmt(balance_usd)}",
-                show_alert=True
+                t("order.insufficient_balance", lang, need=fmt(total_usd), have=fmt(balance_usd)),
+                show_alert=True,
             )
             return
-        
+
         if not withdraw_balance(uid, total_usd, total_rub):
-            await callback.answer("Ошибка при снятии средств с баланса", show_alert=True)
+            await callback.answer(t("order.withdraw_error", lang), show_alert=True)
             return
-        
+
         from app.db import mark_order_paid
         mark_order_paid(code)
         await notify_admin_about_payment(code)
-        
+
         payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
         delivery_note = (product["delivery_text"] or "").strip() if product else ""
-        extra         = f"\n\n📨 <b>Инструкция по активации:</b>\n{delivery_note}" if delivery_note else ""
-        
-        if not payloads:
-            text = (
-                "⏳ Оплата получена, спасибо!\n\n"
-                "Товар временно закончился — администратор свяжется с вами в ближайшее время."
-                f"{extra}\n\n{SHOP_FOOTER}"
-            )
-        else:
-            items = "\n\n".join(f"{i + 1}) <code>{v}</code>" for i, v in enumerate(payloads))
-            text  = (
-                "✅ <b>Оплата подтверждена!</b>\n\n"
-                f"Ваш товар:\n\n{items}"
-                f"{extra}\n\n{SHOP_FOOTER}"
-            )
-        
+        text = order_success_text(lang, payloads, delivery_note)
+
         await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
-        await callback.answer("Спасибо за покупку! 🎉")
+        await callback.answer(t("order.thanks", lang))
         return
 
     extra_pct = settings.cryptobot_invoice_add_percent
@@ -872,27 +898,24 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
                     token=settings.cryptobot_api_token,
                     asset=asset,
                     amount=total_usd,
-                    description=f"Заказ {code}: {product['title']} x{order['qty']}",
+                    description=f"Order {code}: {product['title']} x{order['qty']}",
                     expires_in=900,
                 )
                 set_order_invoice_id(code, invoice.invoice_id)
                 pay_link = invoice.bot_invoice_url
 
-                text = (
-                    "💳 <b>Оплата через CryptoBot</b>\n"
-                    "➖➖➖➖➖➖➖➖➖\n"
-                    f"📦 Товар: {product['title']}\n"
-                    f"🔢 Кол-во: {order['qty']} шт.\n"
-                    f"💵 Сумма: {fmt(total_usd)} $ (+{extra_pct}% комиссия)\n"
-                    f"🔖 Код заказа: <code>{order['order_code']}</code>\n"
-                    "➖➖➖➖➖➖➖➖➖\n"
-                    f"Перейдите для оплаты:\n{pay_link}\n\n"
-                    "⏰ Время на оплату: 15 минут\n"
-                    "🔄 Оплата будет подтверждена автоматически."
+                text = t(
+                    "pay.crypto", lang,
+                    title=product["title"],
+                    qty=order["qty"],
+                    amount=f"{fmt(total_usd)} $",
+                    fee=extra_pct,
+                    code=order["order_code"],
+                    link=pay_link,
                 )
                 kb = InlineKeyboardBuilder()
-                kb.button(text="Оплатить", url=pay_link)
-                kb.button(text="Проверить оплату", callback_data=f"check:{code}")
+                kb.button(text=get_button_text("pay", lang), url=pay_link)
+                kb.button(text=get_button_text("check_payment", lang), callback_data=f"check:{code}")
                 kb.adjust(1)
                 await replace_screen(callback, text, kb.as_markup())
                 await callback.answer()
@@ -902,52 +925,48 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
 
         pay_link = f"https://t.me/CryptoBot?start=invoice-{code}-{asset}"
         total_rub = round(float(order["total_rub"]) * (1 + extra_pct / 100), 2)
-        text = (
-            "💳 <b>Оплата через CryptoBot</b>\n"
-            "➖➖➖➖➖➖➖➖➖\n"
-            f"📦 Товар: {product['title']}\n"
-            f"🔢 Кол-во: {order['qty']} шт.\n"
-            f"💵 Сумма: {fmt(total_rub)} ₽ (+{extra_pct}% комиссия)\n"
-            f"🔖 Код заказа: <code>{order['order_code']}</code>\n"
-            "➖➖➖➖➖➖➖➖➖\n"
-            f"Перейдите для оплаты:\n{pay_link}\n\n"
-            "⏰ Время на оплату: 15 минут"
+        text = t(
+            "pay.crypto_fallback", lang,
+            title=product["title"],
+            qty=order["qty"],
+            amount=fmt(total_rub),
+            fee=extra_pct,
+            code=order["order_code"],
+            link=pay_link,
         )
     else:
         set_order_payment_method(code, "bybit")
-        text = (
-            "🔶 <b>Оплата через Bybit</b>\n"
-            "➖➖➖➖➖➖➖➖➖\n"
-            f"📦 Товар: {product['title']}\n"
-            f"🔢 Кол-во: {order['qty']} шт.\n"
-            f"💵 Сумма: {fmt(order['total_rub'])} ₽\n"
-            f"🔖 Код заказа: <code>{order['order_code']}</code>\n"
-            "➖➖➖➖➖➖➖➖➖\n"
-            f"Переведите на Bybit UID: <code>{settings.bybit_uid}</code>\n\n"
-            "⏰ Время на оплату: 15 минут"
+        text = t(
+            "pay.bybit", lang,
+            title=product["title"],
+            qty=order["qty"],
+            total_rub=fmt(order["total_rub"]),
+            code=order["order_code"],
+            uid=settings.bybit_uid,
         )
 
     kb = InlineKeyboardBuilder()
-    kb.button(text=get_button_text("confirm_paid"), callback_data=f"paid:{code}")
+    kb.button(text=get_button_text("confirm_paid", lang), callback_data=f"paid:{code}")
     await replace_screen(callback, text, kb.as_markup())
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("check:"))
 async def cb_check_payment(callback: CallbackQuery) -> None:
+    lang = lang_of(callback.from_user.id)
     code = callback.data.split(":")[1]
     order = get_order(code)
 
     if not order:
-        await callback.answer("Заказ не найден", show_alert=True)
+        await callback.answer(t("order.not_found", lang), show_alert=True)
         return
 
     if order["payment_status"] == "paid":
-        await callback.answer("Заказ уже оплачен!", show_alert=True)
+        await callback.answer(t("order.already_paid", lang), show_alert=True)
         return
 
     if not settings.cryptobot_api_token or order["invoice_id"] == 0:
-        await callback.answer("Автоматическая проверка недоступна", show_alert=True)
+        await callback.answer(t("pay.check_unavailable", lang), show_alert=True)
         return
 
     try:
@@ -956,34 +975,31 @@ async def cb_check_payment(callback: CallbackQuery) -> None:
         )
     except Exception:
         logger.exception("Failed to check invoice %s", order["invoice_id"])
-        await callback.answer("Ошибка проверки. Попробуйте позже.", show_alert=True)
+        await callback.answer(t("pay.check_error", lang), show_alert=True)
         return
 
     if status == "paid":
         bot_instance = callback.bot
         await _fulfill_order(bot_instance, code)
-        await callback.answer("Оплата подтверждена! 🎉", show_alert=True)
+        await callback.answer(t("pay.check_ok", lang), show_alert=True)
     elif status == "expired":
-        await callback.answer(
-            "Инвойс истёк. Создайте новый заказ.", show_alert=True
-        )
+        await callback.answer(t("pay.check_expired", lang), show_alert=True)
     else:
-        await callback.answer(
-            "Оплата ещё не получена. Попробуйте позже.", show_alert=True
-        )
+        await callback.answer(t("pay.check_pending", lang), show_alert=True)
 
 
 @router.callback_query(F.data.startswith("paid:"))
 async def cb_paid(callback: CallbackQuery) -> None:
+    lang = lang_of(callback.from_user.id)
     code  = callback.data.split(":")[1]
     order = get_order(code)
 
     if not order:
-        await callback.answer("Заказ не найден", show_alert=True)
+        await callback.answer(t("order.not_found", lang), show_alert=True)
         return
 
     if order["payment_status"] == "paid":
-        await callback.answer("Заказ уже оплачен!", show_alert=True)
+        await callback.answer(t("order.already_paid", lang), show_alert=True)
         return
 
     mark_order_paid(code)
@@ -992,24 +1008,10 @@ async def cb_paid(callback: CallbackQuery) -> None:
     product       = get_product(int(order["product_id"]))
     payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
     delivery_note = (product["delivery_text"] or "").strip() if product else ""
-    extra         = f"\n\n📨 <b>Инструкция по активации:</b>\n{delivery_note}" if delivery_note else ""
-
-    if not payloads:
-        text = (
-            "⏳ Оплата получена, спасибо!\n\n"
-            "Товар временно закончился — администратор свяжется с вами в ближайшее время."
-            f"{extra}\n\n{SHOP_FOOTER}"
-        )
-    else:
-        items = "\n\n".join(f"{i + 1}) <code>{v}</code>" for i, v in enumerate(payloads))
-        text  = (
-            "✅ <b>Оплата подтверждена!</b>\n\n"
-            f"Ваш товар:\n\n{items}"
-            f"{extra}\n\n{SHOP_FOOTER}"
-        )
+    text = order_success_text(lang, payloads, delivery_note)
 
     await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
-    await callback.answer("Спасибо за покупку! 🎉")
+    await callback.answer(t("order.thanks", lang))
 
 
 # ─── Получение file_id фото ───────────────────────────────────────────────

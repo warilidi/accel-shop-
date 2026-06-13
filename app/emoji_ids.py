@@ -315,15 +315,19 @@ def get_subcategory_emoji_html(subcategory_name: str) -> str:
     return premium_emoji(emoji_key, fallback)
 
 
-def format_subcategory_header(subcategory_name: str) -> str:
+def format_subcategory_header(subcategory_name: str, lang: str | None = None) -> str:
     """Заголовок экрана товаров: премиум-иконка + название сервиса."""
+    from app.i18n import normalize_lang, t
+
+    lang = normalize_lang(lang)
     clean_name = strip_unicode_emoji(subcategory_name)
     icon = get_subcategory_emoji_html(subcategory_name)
+    pick = t("catalog.pick_product", lang)
     if icon:
-        return f"{icon} <b>{clean_name}</b>\nВыберите товар:"
+        return f"{icon} <b>{clean_name}</b>\n{pick}"
     if clean_name:
-        return f"<b>{clean_name}</b>\nВыберите товар:"
-    return "Выберите товар:"
+        return f"<b>{clean_name}</b>\n{pick}"
+    return pick
 
 
 def get_button_icon_id(product_title: str, subcategory_name: str | None = None) -> str | None:
