@@ -30,7 +30,7 @@ def strip_unicode_emoji(text: str) -> str:
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 PREMIUM_EMOJI = {
-    "chatgpt":    "5206660927339924387",     # ChatGPT
+    "chatgpt":    "5190529511212485938",     # ChatGPT
     "perplexity": "5206188648441091805",    # Perplexity
     "grok":       "5190533058855475557",    # Грок
     "gemini":     "5206660927339924387",    # Гемини
