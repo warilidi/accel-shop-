@@ -449,6 +449,7 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="setimage",    description="Установить картинку экрана"),
         BotCommand(command="images",      description="Статус всех картинок"),
         BotCommand(command="getfileid",   description="Получить file_id фото"),
+        BotCommand(command="getfield",    description="Алиас getfileid"),
         BotCommand(command="order",       description="Проверить заказ по коду"),
         BotCommand(command="orders",      description="Все заказы с фильтрами"),
         BotCommand(command="broadcast",   description="Рассылка всем покупателям"),
@@ -1036,26 +1037,68 @@ async def cb_paid(callback: CallbackQuery) -> None:
 
 # ─── Получение file_id фото ───────────────────────────────────────────────
 
-@router.message(Command("getfileid"))
+def _format_media_id_reply(message: Message) -> str | None:
+    """Собирает file_id / custom_emoji_id из фото, файла или стикера в сообщении."""
+    lines: list[str] = []
+
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        lines.append(f"📋 <b>file_id:</b>\n<code>{file_id}</code>")
+        lines.append(f"Пример: <code>/setimage start {file_id}</code>")
+
+    if message.sticker:
+        lines.append(f"📋 <b>file_id:</b>\n<code>{message.sticker.file_id}</code>")
+        if message.sticker.custom_emoji_id:
+            lines.append(
+                f"🎨 <b>custom_emoji_id:</b>\n<code>{message.sticker.custom_emoji_id}</code>"
+            )
+
+    if message.document and not message.photo:
+        lines.append(f"📋 <b>file_id:</b>\n<code>{message.document.file_id}</code>")
+        if message.document.mime_type:
+            lines.append(f"Тип: <code>{message.document.mime_type}</code>")
+
+    if message.entities:
+        for entity in message.entities:
+            if entity.type == "custom_emoji" and entity.custom_emoji_id:
+                lines.append(
+                    f"🎨 <b>custom_emoji_id:</b>\n<code>{entity.custom_emoji_id}</code>"
+                )
+
+    if not lines:
+        return None
+
+    if message.photo:
+        lines.append(f"\nКлючи: <code>{', '.join(VISUAL_KEYS)}</code>")
+
+    return "\n\n".join(lines)
+
+
+@router.message(Command("getfileid", "getfield"))
 async def cmd_getfileid(message: Message) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
+    reply = _format_media_id_reply(message)
+    if reply:
+        await message.answer(reply)
+        return
     await message.answer(
-        "📸 Отправьте фото следующим сообщением — я верну его <code>file_id</code>.\n"
-        "Затем используйте: <code>/setimage ключ file_id</code>"
+        "📸 Отправьте фото, файл или премиум-эмодзи вместе с командой — "
+        "или следующим сообщением.\n"
+        "Я верну <code>file_id</code> или <code>custom_emoji_id</code>.\n\n"
+        "Затем: <code>/setimage ключ file_id</code>"
     )
 
 
-@router.message(F.photo)
-async def handle_photo(message: Message) -> None:
+@router.message(F.photo | F.sticker | F.document)
+async def handle_photo(message: Message, state: FSMContext) -> None:
     if message.from_user.id not in settings.admin_ids:
         return
-    file_id = message.photo[-1].file_id
-    await message.answer(
-        f"📋 <b>file_id:</b>\n<code>{file_id}</code>\n\n"
-        f"Пример: <code>/setimage start {file_id}</code>\n\n"
-        f"Ключи: <code>{', '.join(VISUAL_KEYS)}</code>"
-    )
+    if await state.get_state():
+        return
+    reply = _format_media_id_reply(message)
+    if reply:
+        await message.answer(reply)
 
 
 # ─── Картинки ──────────────────────────────────────────────────────────
@@ -1703,7 +1746,7 @@ async def cmd_admin(message: Message) -> None:
         "<b>/setdelivery</b> <code>ID | инструкция</code> — текст после оплаты.\n\n"
 
         "🖼 <b>Картинки</b>\n"
-        "<b>/getfileid</b> — получить file_id отправленного фото.\n"
+        "<b>/getfileid</b> или <b>/getfield</b> — file_id / custom_emoji_id картинки.\n"
         "<b>/setimage</b> <code>ключ file_id</code> — установить картинку.\n"
         "<b>/images</b> — статус всех картинок.\n\n"
 
