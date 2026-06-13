@@ -180,6 +180,41 @@ SUBCATEGORY_ICON = {
 }
 
 
+def get_subcategory_emoji_key(subcategory_name: str) -> str | None:
+    """Ключ PREMIUM_EMOJI по названию подкатегории."""
+    sub_lower = (subcategory_name or "").lower()
+    for key, emoji_key in sorted(
+        SUBCATEGORY_ICON.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        if key in sub_lower:
+            return emoji_key
+    return None
+
+
+def get_subcategory_emoji_html(subcategory_name: str) -> str:
+    """HTML с премиум-эмодзи для заголовка подкатегории."""
+    emoji_key = get_subcategory_emoji_key(subcategory_name)
+    if not emoji_key:
+        return ""
+    fallback = "📦"
+    for _, (ek, fb) in PRODUCT_TYPE_EMOJI.items():
+        if ek == emoji_key:
+            fallback = fb
+            break
+    return premium_emoji(emoji_key, fallback)
+
+
+def format_subcategory_header(subcategory_name: str) -> str:
+    """Заголовок экрана товаров: премиум-иконка + название сервиса."""
+    clean_name = strip_unicode_emoji(subcategory_name)
+    icon = get_subcategory_emoji_html(subcategory_name)
+    if icon:
+        return f"{icon} <b>{clean_name}</b>\nВыберите товар:"
+    if clean_name:
+        return f"<b>{clean_name}</b>\nВыберите товар:"
+    return "Выберите товар:"
+
+
 def get_button_icon_id(product_title: str, subcategory_name: str | None = None) -> str | None:
     """
     Возвращает icon_custom_emoji_id для кнопки товара по названию,
@@ -200,10 +235,7 @@ def get_button_icon_id(product_title: str, subcategory_name: str | None = None) 
         if key in title_lower:
             return PREMIUM_EMOJI.get(emoji_key)
     if subcategory_name:
-        sub_lower = subcategory_name.lower()
-        for key, emoji_key in sorted(
-            SUBCATEGORY_ICON.items(), key=lambda item: len(item[0]), reverse=True
-        ):
-            if key in sub_lower:
-                return PREMIUM_EMOJI.get(emoji_key)
+        emoji_key = get_subcategory_emoji_key(subcategory_name)
+        if emoji_key:
+            return PREMIUM_EMOJI.get(emoji_key)
     return None

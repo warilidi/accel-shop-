@@ -27,7 +27,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.catalog_data import PRODUCT_TYPE_HINTS
 from app.config import load_settings
 from app.cryptobot import check_invoice_status, create_invoice
-from app.emoji_ids import get_button_icon_id, strip_unicode_emoji
+from app.emoji_ids import format_subcategory_header, get_button_icon_id, strip_unicode_emoji
 from app.db import (
     add_balance,
     add_custom_product,
@@ -689,7 +689,7 @@ async def cb_subcategory(callback: CallbackQuery, bot: Bot) -> None:
     sub     = get_subcategory(sub_id)
     name    = sub["name"] if sub else ""
     photo   = get_service_image(name)
-    text    = f"🧾 <b>{name}</b>\nВыберите товар:" if name else "🧾 Выберите товар:"
+    text    = format_subcategory_header(name)
 
     if photo:
         await callback.message.answer_photo(photo=photo, caption=text, reply_markup=products_kb(sub_id))
