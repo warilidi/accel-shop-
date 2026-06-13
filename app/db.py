@@ -149,8 +149,25 @@ def init_db() -> None:
 
     seed_extra_products(conn)
     migrate_legacy_extra_subcategory(conn)
+    seed_extra_categories(conn)
 
     conn.close()
+
+
+EXTRA_CATEGORIES = ["Накрутка", "Игры"]
+
+
+def seed_extra_categories(conn: sqlite3.Connection) -> None:
+    """Добавляет новые категории в существующую БД."""
+    cur = conn.cursor()
+    for name in EXTRA_CATEGORIES:
+        cur.execute(
+            "SELECT id FROM categories WHERE LOWER(name) = LOWER(?)",
+            (name,),
+        )
+        if not cur.fetchone():
+            cur.execute("INSERT INTO categories(name) VALUES(?)", (name,))
+    conn.commit()
 
 
 EXTRA_PRODUCTS = [
