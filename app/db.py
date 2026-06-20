@@ -540,6 +540,16 @@ def mark_order_paid(order_code: str) -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM orders WHERE order_code = ?", (order_code,)).fetchone()
 
 
+def mark_order_awaiting_confirm(order_code: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE orders SET payment_status = 'awaiting_confirm' WHERE order_code = ?",
+            (order_code,),
+        )
+        conn.commit()
+        return conn.execute("SELECT * FROM orders WHERE order_code = ?", (order_code,)).fetchone()
+
+
 def get_order(order_code: str) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute("SELECT * FROM orders WHERE order_code = ?", (order_code,)).fetchone()

@@ -66,6 +66,7 @@ from app.db import (
     list_subcategories,
     list_visuals,
     mark_order_paid,
+    mark_order_awaiting_confirm,
     pop_payloads,
     rename_category,
     rename_subcategory,
@@ -393,7 +394,7 @@ async def safe_edit(callback: CallbackQuery, text: str, kb: InlineKeyboardMarkup
 
 # ─── Уведомления ──────────────────────────────────────────────────────────
 
-async def notify_admin_about_payment(order_code: str) -> None:
+async def notify_admin_about_payment(order_code: str, *, awaiting_confirm: bool = False) -> None:
     """Если настроен второй бот-нотификатор — шлёт ему уведомление об оплате."""
     if not settings.notify_bot_token or not settings.notify_chat_id:
         return
@@ -402,13 +403,16 @@ async def notify_admin_about_payment(order_code: str) -> None:
         return
     product = get_product(int(order["product_id"]))
     title = product["title"] if product else "—"
+    header = "⏳ <b>Ожидает подтверждения!</b>" if awaiting_confirm else "💸 <b>Новая оплата!</b>"
+    extra = f"\nПодтвердить: <code>/confirmorder {order_code}</code>" if awaiting_confirm else ""
     text = (
-        "💸 <b>Новая оплата!</b>\n"
+        f"{header}\n"
         f"📋 Заказ: <code>{order['order_code']}</code>\n"
         f"👤 Пользователь: <code>{order['tg_user_id']}</code>\n"
         f"📦 Товар: {title}\n"
         f"🔢 Кол-во: {order['qty']} шт.\n"
         f"💰 Сумма: {fmt(order['total_usd'])}$ ({fmt(order['total_rub'])}₽)"
+        f"{extra}"
     )
     try:
         bot = Bot(token=settings.notify_bot_token,
@@ -419,11 +423,11 @@ async def notify_admin_about_payment(order_code: str) -> None:
         pass
 
 
-async def _fulfill_order(bot: Bot, order_code: str) -> None:
-    """Подтверждает оплату, выдаёт товар и уведомляет пользователя."""
+async def _fulfill_order(bot: Bot, order_code: str) -> str | None:
+    """Подтверждает оплату, выдаёт товар и уведомляет пользователя. Возвращает текст для экрана."""
     order = get_order(order_code)
     if not order or order["payment_status"] == "paid":
-        return
+        return None
 
     mark_order_paid(order_code)
     await notify_admin_about_payment(order_code)
@@ -442,6 +446,7 @@ async def _fulfill_order(bot: Bot, order_code: str) -> None:
         )
     except Exception:
         logger.exception("Failed to send fulfillment message to user %s", order["tg_user_id"])
+    return text
 
 
 async def _payment_checker(bot: Bot) -> None:
@@ -509,6 +514,7 @@ async def setup_commands(bot: Bot) -> None:
         BotCommand(command="getfileid",   description="Получить file_id фото"),
         BotCommand(command="getfield",    description="Алиас getfileid"),
         BotCommand(command="order",       description="Проверить заказ по коду"),
+        BotCommand(command="confirmorder", description="Подтвердить оплату заказа"),
         BotCommand(command="orders",      description="Все заказы с фильтрами"),
         BotCommand(command="broadcast",   description="Рассылка всем покупателям"),
         BotCommand(command="setbalance",  description="Установить баланс пользователю"),
@@ -935,61 +941,63 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
     if method in ("crypto_usdt", "crypto_ton"):
         asset = "USDT" if method == "crypto_usdt" else "TON"
         total_usd = round(float(order["total_usd"]) * (1 + extra_pct / 100), 2)
-
         set_order_payment_method(code, method)
 
-        if settings.cryptobot_api_token:
-            try:
-                invoice = await create_invoice(
-                    token=settings.cryptobot_api_token,
-                    asset=asset,
-                    amount=total_usd,
-                    description=f"Order {code}: {product['title']} x{order['qty']}",
-                    expires_in=900,
-                )
-                set_order_invoice_id(code, invoice.invoice_id)
-                pay_link = invoice.bot_invoice_url
+        if not settings.cryptobot_api_token:
+            kb = InlineKeyboardBuilder()
+            kb.button(text=get_button_text("back", lang), callback_data="go:main")
+            await replace_screen(callback, t("pay.crypto_unavailable", lang), kb.as_markup())
+            await callback.answer()
+            return
 
-                text = t(
-                    "pay.crypto", lang,
-                    title=product["title"],
-                    qty=order["qty"],
-                    amount=f"{fmt(total_usd)} $",
-                    fee=extra_pct,
-                    code=order["order_code"],
-                    link=pay_link,
-                )
-                kb = InlineKeyboardBuilder()
-                kb.button(text=get_button_text("pay", lang), url=pay_link)
-                kb.button(text=get_button_text("check_payment", lang), callback_data=f"check:{code}")
-                kb.adjust(1)
-                await replace_screen(callback, text, kb.as_markup())
-                await callback.answer()
-                return
-            except Exception:
-                logger.exception("Failed to create CryptoBot invoice for order %s", code)
+        try:
+            invoice = await create_invoice(
+                token=settings.cryptobot_api_token,
+                asset=asset,
+                amount=total_usd,
+                description=f"Order {code}: {product['title']} x{order['qty']}",
+                expires_in=900,
+            )
+            set_order_invoice_id(code, invoice.invoice_id)
+            pay_link = invoice.bot_invoice_url
 
-        pay_link = f"https://t.me/CryptoBot?start=invoice-{code}-{asset}"
-        total_rub = round(float(order["total_rub"]) * (1 + extra_pct / 100), 2)
-        text = t(
-            "pay.crypto_fallback", lang,
-            title=product["title"],
-            qty=order["qty"],
-            amount=fmt(total_rub),
-            fee=extra_pct,
-            code=order["order_code"],
-            link=pay_link,
-        )
-    else:
-        set_order_payment_method(code, "bybit")
-        text = t(
-            "pay.bybit", lang,
-            title=product["title"],
-            qty=order["qty"],
-            total_rub=fmt(order["total_rub"]),
-            code=order["order_code"],
-            uid=settings.bybit_uid,
-        )
+            text = t(
+                "pay.crypto", lang,
+                title=product["title"],
+                qty=order["qty"],
+                amount=f"{fmt(total_usd)} $",
+                fee=extra_pct,
+                code=order["order_code"],
+                link=pay_link,
+            )
+            kb = InlineKeyboardBuilder()
+            kb.button(text=get_button_text("pay", lang), url=pay_link)
+            kb.button(text=get_button_text("check_payment", lang), callback_data=f"check:{code}")
+            kb.adjust(1)
+            await replace_screen(callback, text, kb.as_markup())
+            await callback.answer()
+            return
+        except Exception:
+            logger.exception("Failed to create CryptoBot invoice for order %s", code)
+            kb = InlineKeyboardBuilder()
+            kb.button(text=get_button_text("back", lang), callback_data="go:main")
+            await replace_screen(
+                callback,
+                t("pay.invoice_error", lang, code=order["order_code"]),
+                kb.as_markup(),
+            )
+            await callback.answer()
+            return
+
+    set_order_payment_method(code, "bybit")
+    text = t(
+        "pay.bybit", lang,
+        title=product["title"],
+        qty=order["qty"],
+        total_rub=fmt(order["total_rub"]),
+        code=order["order_code"],
+        uid=settings.bybit_uid,
+    )
 
     kb = InlineKeyboardBuilder()
     kb.button(text=get_button_text("confirm_paid", lang), callback_data=f"paid:{code}")
@@ -1025,8 +1033,9 @@ async def cb_check_payment(callback: CallbackQuery) -> None:
         return
 
     if status == "paid":
-        bot_instance = callback.bot
-        await _fulfill_order(bot_instance, code)
+        text = await _fulfill_order(callback.bot, code)
+        if text:
+            await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
         await callback.answer(t("pay.check_ok", lang), show_alert=True)
     elif status == "expired":
         await callback.answer(t("pay.check_expired", lang), show_alert=True)
@@ -1048,16 +1057,25 @@ async def cb_paid(callback: CallbackQuery) -> None:
         await callback.answer(t("order.already_paid", lang), show_alert=True)
         return
 
-    mark_order_paid(code)
-    await notify_admin_about_payment(code)
+    if order["payment_status"] == "awaiting_confirm":
+        await callback.answer(t("order.already_submitted", lang), show_alert=True)
+        return
 
-    product       = get_product(int(order["product_id"]))
-    payloads      = pop_payloads(int(order["product_id"]), int(order["qty"]))
-    delivery_note = (product["delivery_text"] or "").strip() if product else ""
-    text = order_success_text(lang, payloads, delivery_note)
+    method = (order["payment_method"] or "").lower()
+    if method in ("crypto_usdt", "crypto_ton"):
+        await callback.answer(t("pay.use_check_button", lang), show_alert=True)
+        return
 
+    if method != "bybit":
+        await callback.answer(t("pay.use_check_button", lang), show_alert=True)
+        return
+
+    mark_order_awaiting_confirm(code)
+    await notify_admin_about_payment(code, awaiting_confirm=True)
+
+    text = t("order.awaiting_confirm", lang, code=code)
     await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
-    await callback.answer(t("order.thanks", lang))
+    await callback.answer()
 
 
 # ─── Получение file_id фото ───────────────────────────────────────────────
@@ -1442,6 +1460,33 @@ async def cmd_order(message: Message) -> None:
         f"📌 Статус: {order['payment_status']}\n"
         f"👤 User ID: <code>{order['tg_user_id']}</code>"
     )
+
+
+@router.message(Command("confirmorder"))
+async def cmd_confirmorder(message: Message, bot: Bot) -> None:
+    if message.from_user.id not in settings.admin_ids:
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2:
+        await message.answer("Формат: /confirmorder <код заказа>")
+        return
+    code = parts[1].strip()
+    order = get_order(code)
+    if not order:
+        await message.answer("❌ Заказ не найден.")
+        return
+    if order["payment_status"] == "paid":
+        await message.answer("✅ Заказ уже оплачен и выдан.")
+        return
+    if order["payment_status"] not in ("awaiting_confirm", "pending"):
+        await message.answer(f"❌ Нельзя подтвердить заказ со статусом: {order['payment_status']}")
+        return
+
+    text = await _fulfill_order(bot, code)
+    if text:
+        await message.answer(f"✅ Заказ <code>{code}</code> подтверждён, товар выдан пользователю.")
+    else:
+        await message.answer("❌ Не удалось подтвердить заказ.")
 
 
 # ─── Управление балансом ──────────────────────────────────────────────
@@ -1829,6 +1874,7 @@ async def cmd_admin(message: Message) -> None:
 
         "📋 <b>Прочее</b>\n"
         "<b>/order</b> <code>код</code> — информация о конкретном заказе.\n"
+        "<b>/confirmorder</b> <code>код</code> — подтвердить оплату Bybit вручную.\n"
         "<b>/orders</b> — все заказы: фильтры по статусу, пагинация.\n"
         "<b>/broadcast</b> — рассылка всем покупателям.\n\n"
 
@@ -1860,3 +1906,4 @@ async def run() -> None:
 if __name__ == "__main__":
     init_db()
     asyncio.run(run())
+

@@ -248,6 +248,23 @@ TEXTS: dict[str, dict[str, str]] = {
         "pay.check_expired": "Инвойс истёк. Создайте новый заказ.",
         "pay.check_pending": "Оплата ещё не получена. Попробуйте позже.",
         "pay.insufficient_stock": "Недостаточно товара на складе",
+        "pay.crypto_unavailable": (
+            "⚠️ <b>CryptoBot недоступен</b>\n\n"
+            "Автоматическая проверка оплаты не настроена.\n"
+            "Выберите другой способ оплаты или свяжитесь с @Dolzu"
+        ),
+        "pay.invoice_error": (
+            "⚠️ <b>Не удалось создать счёт CryptoBot</b>\n\n"
+            "Попробуйте снова или выберите другой способ оплаты.\n"
+            "Код заказа: <code>{code}</code>"
+        ),
+        "pay.use_check_button": "Используйте кнопку «Проверить оплату» после перевода.",
+        "order.awaiting_confirm": (
+            "⏳ <b>Заявка на оплату отправлена</b>\n\n"
+            "Мы проверим перевод и выдадим товар после подтверждения.\n"
+            "Код заказа: <code>{code}</code>"
+        ),
+        "order.already_submitted": "Заявка уже отправлена на проверку.",
     },
     "en": {
         "lang.choose": "🌐 <b>Choose your language</b>\nВыберите язык:",
@@ -388,6 +405,23 @@ TEXTS: dict[str, dict[str, str]] = {
         "pay.check_expired": "Invoice expired. Please create a new order.",
         "pay.check_pending": "Payment not received yet. Please try again later.",
         "pay.insufficient_stock": "Not enough stock",
+        "pay.crypto_unavailable": (
+            "⚠️ <b>CryptoBot unavailable</b>\n\n"
+            "Automatic payment verification is not configured.\n"
+            "Choose another payment method or contact @Dolzu"
+        ),
+        "pay.invoice_error": (
+            "⚠️ <b>Failed to create CryptoBot invoice</b>\n\n"
+            "Please try again or choose another payment method.\n"
+            "Order code: <code>{code}</code>"
+        ),
+        "pay.use_check_button": "Use the «Check payment» button after you pay.",
+        "order.awaiting_confirm": (
+            "⏳ <b>Payment claim submitted</b>\n\n"
+            "We will verify your transfer and deliver the product after confirmation.\n"
+            "Order code: <code>{code}</code>"
+        ),
+        "order.already_submitted": "Your payment claim is already pending review.",
     },
 }
 
