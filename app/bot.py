@@ -951,10 +951,10 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
             return
 
         try:
-            invoice = await create_invoice(
-                token=settings.cryptobot_api_token,
-                asset=asset,
-                amount=total_usd,
+ invoice = await create_invoice(
+                    token=settings.cryptobot_api_token,
+                    asset=asset,
+                    amount=invoice_amount,
                 description=f"Order {code}: {product['title']} x{order['qty']}",
                 expires_in=900,
             )
