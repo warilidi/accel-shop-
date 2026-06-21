@@ -23,7 +23,7 @@ class Settings:
     payment_check_interval: int
     channel_id: int | None
     channel_username: str
-    ton_per_usd: float  # ✅ НОВОЕ: курс TON к USD
+    ton_per_usd: float  # ✅ FIX: TON to USD exchange rate
 
 
 def _parse_admin_ids(raw: str) -> set[int]:
@@ -64,5 +64,5 @@ def load_settings() -> Settings:
         payment_check_interval=int(os.getenv("PAYMENT_CHECK_INTERVAL", "30")),
         channel_id=channel_id,
         channel_username=os.getenv("CHANNEL_USERNAME", "accel_shop").strip(),
-        ton_per_usd=float(os.getenv("TON_PER_USD", "1.62")),  # ✅ НОВОЕ
+        ton_per_usd=float(os.getenv("TON_PER_USD", "1.62")),  # ✅ FIX: TON exchange rate
     )
