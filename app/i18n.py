@@ -239,7 +239,14 @@ TEXTS: dict[str, dict[str, str]] = {
             "💵 Сумма: {total_rub} ₽\n"
             "🔖 Код заказа: <code>{code}</code>\n"
             "➖➖➖➖➖➖➖➖➖\n"
-            "Переведите на Bybit UID: <code>{uid}</code>\n\n"
+            "<b>📝 Реквизиты для перевода:</b>\n"
+            "💼 <b>Адрес кошелька:</b>\n"
+            "<code>0xa55344247b1699de4eb3632b5955010118c06b23</code>\n"
+            "🪙 <b>Монета:</b> USDT\n"
+            "🌐 <b>Сеть:</b> BEP20\n"
+            "📤 <b>Отправлять в:</b> Финансирование (Funding)\n"
+            "⚠️ <b>Комиссия на вас!</b>\n"
+            "➖➖➖➖➖➖➖➖➖\n"
             "⏰ Время на оплату: 15 минут"
         ),
         "pay.check_unavailable": "Автоматическая проверка недоступна",
@@ -248,23 +255,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "pay.check_expired": "Инвойс истёк. Создайте новый заказ.",
         "pay.check_pending": "Оплата ещё не получена. Попробуйте позже.",
         "pay.insufficient_stock": "Недостаточно товара на складе",
-        "pay.crypto_unavailable": (
-            "⚠️ <b>CryptoBot недоступен</b>\n\n"
-            "Автоматическая проверка оплаты не настроена.\n"
-            "Выберите другой способ оплаты или свяжитесь с @Dolzu"
-        ),
-        "pay.invoice_error": (
-            "⚠️ <b>Не удалось создать счёт CryptoBot</b>\n\n"
-            "Попробуйте снова или выберите другой способ оплаты.\n"
-            "Код заказа: <code>{code}</code>"
-        ),
-        "pay.use_check_button": "Используйте кнопку «Проверить оплату» после перевода.",
-        "order.awaiting_confirm": (
-            "⏳ <b>Заявка на оплату отправлена</b>\n\n"
-            "Мы проверим перевод и выдадим товар после подтверждения.\n"
-            "Код заказа: <code>{code}</code>"
-        ),
-        "order.already_submitted": "Заявка уже отправлена на проверку.",
     },
     "en": {
         "lang.choose": "🌐 <b>Choose your language</b>\nВыберите язык:",
@@ -396,7 +386,14 @@ TEXTS: dict[str, dict[str, str]] = {
             "💵 Amount: {total_rub} ₽\n"
             "🔖 Order code: <code>{code}</code>\n"
             "➖➖➖➖➖➖➖➖➖\n"
-            "Transfer to Bybit UID: <code>{uid}</code>\n\n"
+            "<b>📝 Payment Details:</b>\n"
+            "💼 <b>Wallet Address:</b>\n"
+            "<code>0xa55344247b1699de4eb3632b5955010118c06b23</code>\n"
+            "🪙 <b>Coin:</b> USDT\n"
+            "🌐 <b>Network:</b> BEP20\n"
+            "📤 <b>Send to:</b> Funding\n"
+            "⚠️ <b>Fee on your side!</b>\n"
+            "➖➖➖➖➖➖➖➖➖\n"
             "⏰ Time to pay: 15 minutes"
         ),
         "pay.check_unavailable": "Automatic check is unavailable",
@@ -405,23 +402,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "pay.check_expired": "Invoice expired. Please create a new order.",
         "pay.check_pending": "Payment not received yet. Please try again later.",
         "pay.insufficient_stock": "Not enough stock",
-        "pay.crypto_unavailable": (
-            "⚠️ <b>CryptoBot unavailable</b>\n\n"
-            "Automatic payment verification is not configured.\n"
-            "Choose another payment method or contact @Dolzu"
-        ),
-        "pay.invoice_error": (
-            "⚠️ <b>Failed to create CryptoBot invoice</b>\n\n"
-            "Please try again or choose another payment method.\n"
-            "Order code: <code>{code}</code>"
-        ),
-        "pay.use_check_button": "Use the «Check payment» button after you pay.",
-        "order.awaiting_confirm": (
-            "⏳ <b>Payment claim submitted</b>\n\n"
-            "We will verify your transfer and deliver the product after confirmation.\n"
-            "Order code: <code>{code}</code>"
-        ),
-        "order.already_submitted": "Your payment claim is already pending review.",
     },
 }
 
