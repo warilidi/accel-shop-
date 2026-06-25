@@ -423,9 +423,13 @@ async def notify_admin_about_payment(order_code: str) -> None:
 # ✅ NEW: Bybit admin confirmation function
 async def notify_admin_bybit_payment(bot: Bot, order_code: str, user_id: int) -> None:
     """Отправляет админам запрос на подтверждение Bybit платежа с кнопками."""
+    logger.info(f"📢 Sending Bybit payment notification for order {order_code}")
+    
     order = get_order(order_code)
     if not order:
+        logger.error(f"❌ Order not found: {order_code}")
         return
+    
     product = get_product(int(order["product_id"]))
     title = product["title"] if product else "—"
     
@@ -447,17 +451,28 @@ async def notify_admin_bybit_payment(bot: Bot, order_code: str, user_id: int) ->
     kb.adjust(2)
     
     # Send to all admins
+    logger.info(f"📣 Admin IDs: {settings.admin_ids}")
+    
+    if not settings.admin_ids:
+        logger.error("❌ No admins configured in ADMIN_IDS!")
+        return
+    
     for admin_id in settings.admin_ids:
         try:
+            logger.info(f"📤 Sending to admin {admin_id}...")
             await bot.send_message(admin_id, text, reply_markup=kb.as_markup())
-        except Exception:
-            logger.exception(f"Failed to send Bybit confirmation to admin {admin_id}")
+            logger.info(f"✅ Sent to admin {admin_id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send Bybit confirmation to admin {admin_id}: {e}")
 
 
 async def notify_user_payment_confirmed(bot: Bot, user_id: int, order_code: str) -> None:
     """Уведомляет пользователя об одобрении платежа."""
+    logger.info(f"📢 Notifying user {user_id} about payment confirmation")
+    
     order = get_order(order_code)
     if not order:
+        logger.error(f"❌ Order not found: {order_code}")
         return
     
     product = get_product(int(order["product_id"]))
@@ -469,8 +484,9 @@ async def notify_user_payment_confirmed(bot: Bot, user_id: int, order_code: str)
     
     try:
         await bot.send_message(user_id, text)
-    except Exception:
-        logger.exception(f"Failed to send payment confirmation to user {user_id}")
+        logger.info(f"✅ Notified user {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to send payment confirmation to user {user_id}: {e}")
 
 
 async def _fulfill_order(bot: Bot, order_code: str) -> None:
@@ -1093,27 +1109,41 @@ async def cb_paid(callback: CallbackQuery) -> None:
     lang = lang_of(callback.from_user.id)
     code  = callback.data.split(":")[1]
     order = get_order(code)
+    
+    logger.info(f"👤 User {callback.from_user.id} pressed paid button for order {code}")
 
     if not order:
+        logger.error(f"❌ Order not found: {code}")
         await callback.answer(t("order.not_found", lang), show_alert=True)
         return
 
     if order["payment_status"] == "paid":
+        logger.warning(f"⚠️ Order already paid: {code}")
         await callback.answer(t("order.already_paid", lang), show_alert=True)
         return
 
     # ✅ NEW: Check if Bybit payment - need admin confirmation
-    if order["payment_method"] == "bybit":
+    logger.info(f"💳 Payment method: {order.get('payment_method')}")
+    
+    if order.get("payment_method") == "bybit":
+        logger.info(f"🔶 Bybit payment detected for order {code}")
+        
         # Set status to waiting for admin confirmation
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute(
-            "UPDATE orders SET payment_status = 'waiting_admin_confirm' WHERE order_code = ?",
-            (code,)
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                "UPDATE orders SET payment_status = 'waiting_admin_confirm' WHERE order_code = ?",
+                (code,)
+            )
+            conn.commit()
+            conn.close()
+            logger.info(f"✅ Updated order status to waiting_admin_confirm: {code}")
+        except Exception as e:
+            logger.error(f"❌ Failed to update order status: {e}")
+            return
         
         # Notify admins to confirm payment
+        logger.info(f"📢 Sending admin notification...")
         await notify_admin_bybit_payment(callback.bot, code, callback.from_user.id)
         
         # Tell user to wait
@@ -1127,6 +1157,7 @@ async def cb_paid(callback: CallbackQuery) -> None:
         return
 
     # ✅ For other payment methods - instant confirmation
+    logger.info(f"💳 Non-Bybit payment, instant confirmation: {code}")
     mark_order_paid(code)
     await notify_admin_about_payment(code)
 
