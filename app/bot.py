@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sqlite3
 import time
 from random import randint
 
@@ -417,6 +418,59 @@ async def notify_admin_about_payment(order_code: str) -> None:
         await bot.session.close()
     except Exception:
         pass
+
+
+# ✅ NEW: Bybit admin confirmation function
+async def notify_admin_bybit_payment(bot: Bot, order_code: str, user_id: int) -> None:
+    """Отправляет админам запрос на подтверждение Bybit платежа с кнопками."""
+    order = get_order(order_code)
+    if not order:
+        return
+    product = get_product(int(order["product_id"]))
+    title = product["title"] if product else "—"
+    
+    text = (
+        "🔶 <b>BYBIT ПЛАТЕЖ - ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ</b>\n"
+        "➖➖➖➖➖➖➖➖➖\n"
+        f"📋 Заказ: <code>{order['order_code']}</code>\n"
+        f"👤 Пользователь: <code>{user_id}</code>\n"
+        f"📦 Товар: {title}\n"
+        f"🔢 Кол-во: {order['qty']} шт.\n"
+        f"💰 Сумма: {fmt(order['total_usd'])}$ ({fmt(order['total_rub'])}₽)\n"
+        "➖➖➖➖➖➖➖➖➖\n"
+        "<b>Подтвердить оплату?</b>"
+    )
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Подтвердить", callback_data=f"admin_confirm_bybit:{order_code}")
+    kb.button(text="❌ Отклонить", callback_data=f"admin_reject_bybit:{order_code}")
+    kb.adjust(2)
+    
+    # Send to all admins
+    for admin_id in settings.admin_ids:
+        try:
+            await bot.send_message(admin_id, text, reply_markup=kb.as_markup())
+        except Exception:
+            logger.exception(f"Failed to send Bybit confirmation to admin {admin_id}")
+
+
+async def notify_user_payment_confirmed(bot: Bot, user_id: int, order_code: str) -> None:
+    """Уведомляет пользователя об одобрении платежа."""
+    order = get_order(order_code)
+    if not order:
+        return
+    
+    product = get_product(int(order["product_id"]))
+    payloads = pop_payloads(int(order["product_id"]), int(order["qty"]))
+    delivery_note = (product["delivery_text"] or "").strip() if product else ""
+    
+    lang = lang_of(user_id)
+    text = order_success_text(lang, payloads, delivery_note)
+    
+    try:
+        await bot.send_message(user_id, text)
+    except Exception:
+        logger.exception(f"Failed to send payment confirmation to user {user_id}")
 
 
 async def _fulfill_order(bot: Bot, order_code: str) -> None:
@@ -940,18 +994,10 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
 
         if settings.cryptobot_api_token:
             try:
-                # ✅ FIX: Convert USD to TON if needed
-                if method == "crypto_ton":
-                    invoice_amount = round(total_usd / settings.ton_per_usd, 8)
-                    display_amount = f"{fmt(invoice_amount)} TON"
-                else:
-                    invoice_amount = total_usd
-                    display_amount = f"{fmt(total_usd)} USDT"
-
                 invoice = await create_invoice(
                     token=settings.cryptobot_api_token,
                     asset=asset,
-                    amount=invoice_amount,
+                    amount=total_usd,
                     description=f"Order {code}: {product['title']} x{order['qty']}",
                     expires_in=900,
                 )
@@ -962,7 +1008,7 @@ async def cb_pay(callback: CallbackQuery, bot: Bot) -> None:
                     "pay.crypto", lang,
                     title=product["title"],
                     qty=order["qty"],
-                    amount=display_amount,
+                    amount=f"{fmt(total_usd)} $",
                     fee=extra_pct,
                     code=order["order_code"],
                     link=pay_link,
@@ -1056,6 +1102,31 @@ async def cb_paid(callback: CallbackQuery) -> None:
         await callback.answer(t("order.already_paid", lang), show_alert=True)
         return
 
+    # ✅ NEW: Check if Bybit payment - need admin confirmation
+    if order["payment_method"] == "bybit":
+        # Set status to waiting for admin confirmation
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            "UPDATE orders SET payment_status = 'waiting_admin_confirm' WHERE order_code = ?",
+            (code,)
+        )
+        conn.commit()
+        conn.close()
+        
+        # Notify admins to confirm payment
+        await notify_admin_bybit_payment(callback.bot, code, callback.from_user.id)
+        
+        # Tell user to wait
+        text = (
+            "✅ <b>Платеж зарегистрирован!</b>\n"
+            "⏳ Ожидание проверки администратором...\n"
+            "Это займет несколько минут."
+        )
+        await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
+        await callback.answer("Платеж отправлен на проверку администратору")
+        return
+
+    # ✅ For other payment methods - instant confirmation
     mark_order_paid(code)
     await notify_admin_about_payment(code)
 
@@ -1066,6 +1137,93 @@ async def cb_paid(callback: CallbackQuery) -> None:
 
     await replace_screen(callback, text, InlineKeyboardBuilder().as_markup())
     await callback.answer(t("order.thanks", lang))
+
+
+# ✅ NEW: Admin confirm Bybit payment
+@router.callback_query(F.data.startswith("admin_confirm_bybit:"))
+async def cb_admin_confirm_bybit(callback: CallbackQuery) -> None:
+    """Админ подтвердил Bybit платеж."""
+    admin_id = callback.from_user.id
+    
+    # Проверяем, что это админ
+    if admin_id not in settings.admin_ids:
+        await callback.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    order_code = callback.data.split(":")[1]
+    order = get_order(order_code)
+    
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    # Mark as paid
+    mark_order_paid(order_code)
+    
+    # Notify user about confirmation
+    user_id = int(order["tg_user_id"])
+    await notify_user_payment_confirmed(callback.bot, user_id, order_code)
+    
+    # Update admin message
+    text = (
+        "🔶 <b>BYBIT ПЛАТЕЖ</b>\n"
+        f"📋 Заказ: <code>{order['order_code']}</code>\n"
+        f"✅ <b>ПОДТВЕРЕЖЕН</b> (админ {admin_id})"
+    )
+    await callback.message.edit_text(text)
+    await callback.answer("✅ Платеж подтвержден")
+
+
+# ✅ NEW: Admin reject Bybit payment
+@router.callback_query(F.data.startswith("admin_reject_bybit:"))
+async def cb_admin_reject_bybit(callback: CallbackQuery) -> None:
+    """Админ отклонил Bybit платеж."""
+    admin_id = callback.from_user.id
+    
+    # Проверяем, что это админ
+    if admin_id not in settings.admin_ids:
+        await callback.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    order_code = callback.data.split(":")[1]
+    order = get_order(order_code)
+    
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    # Set status back to pending
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE orders SET payment_status = 'pending' WHERE order_code = ?",
+        (order_code,)
+    )
+    conn.commit()
+    conn.close()
+    
+    # Notify user about rejection
+    user_id = int(order["tg_user_id"])
+    lang = lang_of(user_id)
+    
+    text = (
+        "❌ <b>Платеж отклонен</b>\n"
+        "Причина: Ошибка при переводе средств\n"
+        "Пожалуйста, попробуйте еще раз"
+    )
+    
+    try:
+        await callback.bot.send_message(user_id, text)
+    except Exception:
+        logger.exception(f"Failed to send rejection to user {user_id}")
+    
+    # Update admin message
+    text = (
+        "🔶 <b>BYBIT ПЛАТЕЖ</b>\n"
+        f"📋 Заказ: <code>{order['order_code']}</code>\n"
+        f"❌ <b>ОТКЛОНЕН</b> (админ {admin_id})"
+    )
+    await callback.message.edit_text(text)
+    await callback.answer("❌ Платеж отклонен")
 
 
 # ─── Получение file_id фото ───────────────────────────────────────────────
